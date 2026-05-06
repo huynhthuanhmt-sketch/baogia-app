@@ -1,18 +1,13 @@
-
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Lịch Chăm Sóc Khách Hàng MPE</title>
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- React & ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
@@ -128,25 +123,40 @@
                 const customerMap = new Map(); let idCounter = 1; let duplicates = 0; const oldCustomers = [...customers];
                 const cleanName = (name) => String(name).toLowerCase().replace(/\s+/g, '').trim();
                 
-                // THUẬT TOÁN AI AUTO-DETECT TIẾN HÓA (Đọc được cả Tháng 5.2026, Tháng 05/2026)
                 let monthIndices = {};
+                let dayIndices = {}; 
                 let isExportFile = false;
+                
                 for (let i = 0; i < Math.min(data.length, 25); i++) {
                     const row = data[i];
                     let foundMonths = 0;
+                    let foundDays = 0;
+                    
                     row.forEach((cell, idx) => {
                         if(!cell) return;
                         const str = String(cell).toLowerCase().trim().replace(/\s+/g, ' ');
+                        
                         for(let m=1; m<=12; m++) {
-                            // Regex siêu mạnh: Match "tháng 1", "tháng 01", "tháng 1.2026", "tháng 1 năm 2026"
                             const regex = new RegExp(`^tháng\\s*0?${m}(\\s*\\.|\\/|-|\\s+năm\\s+|\\s*20\\d{2}|$)`, 'i');
                             if (regex.test(str)) {
-                                monthIndices[m] = idx; // Lưu cột chứa tháng đó (ưu tiên cột bên phải nhất nếu trùng)
+                                monthIndices[m] = idx;
                                 foundMonths++;
                             }
                         }
+                        
+                        const dayRegex = /^ngày\s*0?([1-9]|[12]\d|3[01])$/i;
+                        const dayMatch = str.match(dayRegex);
+                        if (dayMatch) {
+                            const dayNum = parseInt(dayMatch[1]);
+                            dayIndices[dayNum] = idx;
+                            foundDays++;
+                        }
                     });
-                    if (foundMonths >= 6) { isExportFile = true; break; }
+                    
+                    if (foundMonths >= 6 || foundDays >= 10) { 
+                        isExportFile = true; 
+                        break; 
+                    }
                 }
 
                 let hasRestoredSales = false;
@@ -165,14 +175,16 @@
 
                         const existingOld = oldCustomers.find(c => cleanName(c.name) === key);
                         let currentSales = existingOld && existingOld.monthlySales ? { ...existingOld.monthlySales } : {1:0,2:0,3:0,4:0,5:0,6:0,7:0,8:0,9:0,10:0,11:0,12:0};
+                        
+                        // [VÁ LỖI 1]: TẠO BỘ NHỚ LƯU MẢNG 31 NGÀY (Lấy từ cũ hoặc tạo mới)
+                        let currentDailySales = existingOld && existingOld.dailySales ? [...existingOld.dailySales] : Array(31).fill(0);
 
-                        // HÚT DOANH SỐ (Nếu là file xuất BC06_26 hoặc App)
                         if (isExportFile && sttIdx === 0) {
+                            // 1. Hút số theo Tháng
                             for (let m = 1; m <= 12; m++) {
                                 if (monthIndices[m] !== undefined) {
                                     const rawVal = row[monthIndices[m]];
                                     if (rawVal) {
-                                        // Chỉ giữ lại số và dấu chấm/phẩy (xử lý số âm nếu có)
                                         const val = Number(String(rawVal).replace(/[^0-9.-]/g, ''));
                                         if (!isNaN(val) && val > 0) {
                                             currentSales[m] = val;
@@ -181,6 +193,32 @@
                                     }
                                 }
                             }
+                            
+                            // 2. Hút số theo 31 Cột Ngày
+                            let dailySum = 0;
+                            let hasDailyData = false;
+                            let tempDaily = Array(31).fill(0); // [VÁ LỖI 2]: Khay chứa riêng 31 ngày cho file mới
+                            
+                            for (let d = 1; d <= 31; d++) {
+                                if (dayIndices[d] !== undefined) {
+                                    const rawVal = row[dayIndices[d]];
+                                    if (rawVal) {
+                                        const val = Number(String(rawVal).replace(/[^0-9.-]/g, ''));
+                                        if (!isNaN(val) && val > 0) {
+                                            dailySum += val;
+                                            tempDaily[d - 1] = val; // [VÁ LỖI 3]: Nhét từng ngày vào khay
+                                            hasDailyData = true;
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Ép vào bộ nhớ chính
+                            if (hasDailyData && dailySum > 0) {
+                                currentSales[selectedMonth] = dailySum;
+                                currentDailySales = tempDaily; // [VÁ LỖI 4]: Lưu trọn vẹn 31 ngày thay vì xóa bỏ
+                                hasRestoredSales = true;
+                            }
                         }
 
                         if (customerMap.has(key)) { 
@@ -188,38 +226,43 @@
                             if (!existing.phone && phone) existing.phone = phone; if (existing.xa === 'CHƯA RÕ' && xa) existing.xa = xa; if (existing.huyen === 'CHƯA RÕ' && huyen) existing.huyen = huyen; 
                             if (isExportFile && sttIdx === 0) {
                                 for (let m = 1; m <= 12; m++) { if (currentSales[m] > 0) existing.monthlySales[m] = currentSales[m]; }
+                                // Nếu có mảng ngày mới thì ghi đè vào khách trùng
+                                if (hasRestoredSales && currentDailySales.some(v => v > 0)) existing.dailySales = [...currentDailySales];
                             }
                         } else {
                             customerMap.set(key, { 
-                                id: existingOld ? existingOld.id : `MT1_${Date.now()}_${idCounter++}`, // Khóa ID để không lệch Lịch
+                                id: existingOld ? existingOld.id : `MT1_${Date.now()}_${idCounter++}`,
                                 name: String(name), phone: phone, xa: xa, huyen: huyen, 
                                 type: existingOld ? existingOld.type : 'DUY_TRI', subGroup: existingOld ? existingOld.subGroup : (idCounter % 2 === 0 ? 2 : 1), 
                                 location: existingOld ? existingOld.location : null, 
-                                monthlySales: currentSales 
+                                monthlySales: currentSales,
+                                dailySales: currentDailySales // [VÁ LỖI 5]: Đẩy thẳng bộ nhớ ngày vào thông tin Khách
                             });
                         }
                     };
                     
                     if (isExportFile) {
-                        processChunk(0, 1, 2, 3, 4); // File form Báo cáo chỉ quét 1 khối
+                        processChunk(0, 1, 2, 3, 4); 
                     } else {
-                        processChunk(0, 1, 2, 3, 4); // File dọc chuẩn quét 2 khối
+                        processChunk(0, 1, 2, 3, 4); 
                         processChunk(5, 6, 7, 8, 9);
                     }
                 }
+                
                 const finalParsed = Array.from(customerMap.values());
                 if (finalParsed.length === 0) return setStatus({ type: 'error', text: 'Không trích xuất được KH nào.' });
                 setCustomers([...oldCustomers.filter(oc => !finalParsed.find(fc => fc.id === oc.id)), ...finalParsed]); 
 
                 let successMsg = `Nạp thành công ${finalParsed.length} KH chuẩn.`;
-                if (hasRestoredSales) successMsg += " Đã khôi phục Doanh số Lịch sử!";
+                if (hasRestoredSales) successMsg += " Đã khôi phục Doanh số Lịch sử (bao gồm DS 31 Ngày)!";
                 
                 setActiveTab('categorize'); setStatus({ type: 'success', text: successMsg }); setFullMonthSchedule(null);
             };
 
             const handleAddCustomer = () => {
                 if(!newCustomer.name) return setStatus({ type: 'error', text: 'Vui lòng nhập tên khách hàng.' });
-                setCustomers(prev => [{ ...newCustomer, id: `MT1_MANUAL_${Date.now()}`, subGroup: 1, location: null, monthlySales: {1:0,2:0,3:0,4:0,5:0,6:0,7:0,8:0,9:0,10:0,11:0,12:0} }, ...prev]);
+                // [VÁ LỖI 6]: Khởi tạo mảng ngày trống khi tạo thủ công để chống lỗi sập
+                setCustomers(prev => [{ ...newCustomer, id: `MT1_MANUAL_${Date.now()}`, subGroup: 1, location: null, monthlySales: {1:0,2:0,3:0,4:0,5:0,6:0,7:0,8:0,9:0,10:0,11:0,12:0}, dailySales: Array(31).fill(0) }, ...prev]);
                 setNewCustomer({ name: '', phone: '', xa: '', huyen: '', type: 'DUY_TRI' }); setShowAddForm(false); setFullMonthSchedule(null); setStatus({ type: 'success', text: 'Thêm khách hàng thành công.' });
             };
 
@@ -329,7 +372,6 @@
                 const qMonths = [(currentQuarter-1)*3 + 1, (currentQuarter-1)*3 + 2, (currentQuarter-1)*3 + 3];
 
                 customers.forEach(c => {
-                    // FALLBACK: Ưu tiên lấy doanh số thực tế từ lịch. Nếu = 0 (lịch trống) thì lấy doanh số nhập tay/hút từ file cũ.
                     let scheduleSales = 0;
                     if (fullMonthSchedule) {
                         [1, 2, 3, 4].forEach(week => {
@@ -387,13 +429,16 @@
                     headerRow.eachCell((cell) => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0047AB' } }; cell.font = { color: { argb: 'FFFFFFFF' }, bold: true }; cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; });
 
                     const monthColMap = { 1:8, 2:9, 3:10, 4:12, 5:13, 6:14, 7:16, 8:17, 9:18, 10:20, 11:21, 12:22 };
-                    const salesMap = {}; customers.forEach(c => salesMap[c.id] = { c, days: Array(31).fill(0) });
+                    
+                    // [VÁ LỖI 7]: Đưa mảng 31 ngày từ Khách Hàng (đã up) vào Form để In ra
+                    const salesMap = {}; 
+                    customers.forEach(c => salesMap[c.id] = { c, days: c.dailySales ? [...c.dailySales] : Array(31).fill(0) });
 
                     let dayCounter = 0; 
-                    [1, 2, 3, 4].forEach(week => { ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'].forEach(dayKey => { if (fullMonthSchedule[week][dayKey]) { fullMonthSchedule[week][dayKey].items.forEach(item => { if (item.sales && !isNaN(item.sales)) salesMap[item.id].days[dayCounter] += Number(item.sales); }); dayCounter++; } }); });
+                    [1, 2, 3, 4].forEach(week => { ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'].forEach(dayKey => { if (fullMonthSchedule[week][dayKey]) { fullMonthSchedule[week][dayKey].items.forEach(item => { if (item.sales && !isNaN(item.sales)) salesMap[item.id].days[dayCounter] = Number(item.sales); }); dayCounter++; } }); });
 
                     let rowIndex = 9;
-                    let totalColSums = Array(60).fill(0); // Bộ nhớ đệm Javascript để ép xung
+                    let totalColSums = Array(60).fill(0); 
 
                     customers.forEach((c, idx) => {
                         const r = wsForm.getRow(rowIndex);
@@ -407,7 +452,6 @@
                             let val = Number(c.monthlySales?.[m]) || 0;
                             
                             if (m === selectedMonth) { 
-                                // Nếu Lịch có nhập số thì ưu tiên. Nếu rỗng (0) thì xài luôn số liệu nạp từ File cũ để không bị đè mất
                                 val = daysSum > 0 ? daysSum : val;
                                 r.getCell(targetCol).value = val > 0 ? { formula: `Y${rowIndex}`, result: val } : val; 
                                 r.getCell(targetCol).font = { bold: true }; 
@@ -419,11 +463,9 @@
                             totalColSums[targetCol] = (totalColSums[targetCol] || 0) + val;
                         }
 
-                        // THUẬT TOÁN ÉP XUNG JAVASCRIPT: Tính cứng kết quả đưa vào File để chống Zalo báo lỗi
                         let q1 = mSales[1]+mSales[2]+mSales[3]; let q2 = mSales[4]+mSales[5]+mSales[6]; let q3 = mSales[7]+mSales[8]+mSales[9]; let q4 = mSales[10]+mSales[11]+mSales[12];
                         let totalYear = q1+q2+q3+q4;
 
-                        // Thay SUM(K9,O9...) thành K9+O9+... để không bị lỗi dấu phẩy chấm theo hệ điều hành
                         r.getCell(11).value = { formula: `H${rowIndex}+I${rowIndex}+J${rowIndex}`, result: q1 }; r.getCell(11).font = { bold: true }; r.getCell(11).numFmt = '#,##0';
                         r.getCell(15).value = { formula: `L${rowIndex}+M${rowIndex}+N${rowIndex}`, result: q2 }; r.getCell(15).font = { bold: true }; r.getCell(15).numFmt = '#,##0';
                         r.getCell(19).value = { formula: `P${rowIndex}+Q${rowIndex}+R${rowIndex}`, result: q3 }; r.getCell(19).font = { bold: true }; r.getCell(19).numFmt = '#,##0';
@@ -441,7 +483,6 @@
                         rowIndex++;
                     });
 
-                    // GẮN CỨNG TỔNG CỘNG HÀNG DƯỚI CÙNG (Chống lỗi hiển thị)
                     const endDataRow = Math.max(8, rowIndex - 1);
                     const totalRow = wsForm.addRow([]);
                     totalRow.getCell(2).value = 'TỔNG CỘNG'; totalRow.getCell(2).font = { bold: true, color: { argb: 'FFFF0000' } }; totalRow.getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
@@ -980,6 +1021,3 @@
     </script>
 </body>
 </html>
-
-
-
