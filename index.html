@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lịch Chăm Sóc Khách Hàng</title>
+    <title>Lịch Chăm Sóc Khách Hàng MPE</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome Icons -->
@@ -57,8 +57,6 @@
             const [showAddForm, setShowAddForm] = useState(false);
             const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', xa: '', huyen: '', type: 'DUY_TRI' });
             const [expandedCustomer, setExpandedCustomer] = useState(null);
-            
-            // STATE MỚI: QUẢN LÝ MODAL XÓA KHÁCH HÀNG (Thay thế window.confirm)
             const [customerToDelete, setCustomerToDelete] = useState(null);
 
             const [activeTab, setActiveTab] = useState('upload'); 
@@ -101,7 +99,7 @@
                     if(data) {
                         setCustomers(data.customers || []); setFullMonthSchedule(data.fullMonthSchedule || null); setSelectedMonth(data.selectedMonth || selectedMonth); setSelectedYear(data.selectedYear || selectedYear); setHomeLocation(data.homeLocation || null);
                         if(data.targetQuarter) setTargetQuarter(data.targetQuarter); if(data.targetYear) setTargetYear(data.targetYear);
-                        setActiveTab(data.fullMonthSchedule ? 'schedule' : 'categorize'); setStatus({ type: 'success', text: 'Đã khôi phục thành công!' });
+                        setActiveTab(data.fullMonthSchedule ? 'schedule' : 'analysis'); setStatus({ type: 'success', text: 'Đã khôi phục thành công!' });
                     }
                 });
             };
@@ -125,39 +123,23 @@
                 if (fileInputRef.current) fileInputRef.current.value = '';
             };
 
-            // =========================================================
-            // CORE FIX: THUẬT TOÁN ĐỌC FILE EXCEL 2 BẢNG (TRÁI VÀ PHẢI)
-            // =========================================================
             const processAndMergeExcel = (data) => {
                 const customerMap = new Map(); let idCounter = 1; let duplicates = 0; const oldCustomers = [...customers];
                 const cleanName = (name) => String(name).toLowerCase().replace(/\s+/g, '').trim();
                 
                 for (let i = 0; i < data.length; i++) {
                     const row = data[i].map(cell => cell !== undefined && cell !== null ? cell.toString().trim() : '');
-
-                    // Hàm quét một cụm cột xác định
                     const processChunk = (sttIdx, nameIdx, phoneIdx, xaIdx, huyenIdx) => {
                         if (row.length <= nameIdx) return;
-                        const stt = row[sttIdx];
-                        const name = row[nameIdx];
-                        
-                        // Nếu không phải số thứ tự hợp lệ hoặc tên trống thì bỏ qua
+                        const stt = row[sttIdx]; const name = row[nameIdx];
                         if (!stt || isNaN(stt) || !name) return;
-                        
                         const invalidWords = ['TÊN KHÁCH HÀNG', 'DOANH SỐ', 'BẢNG THEO DÕI', 'NVKD', 'CHỈ TIÊU'];
                         if (invalidWords.some(w => name.toUpperCase().includes(w))) return;
-
-                        const phone = row[phoneIdx] || '';
-                        const xa = row[xaIdx] || 'CHƯA RÕ';
-                        const huyen = row[huyenIdx] || 'CHƯA RÕ';
-                        const key = cleanName(name);
+                        const phone = row[phoneIdx] || ''; const xa = row[xaIdx] || 'CHƯA RÕ'; const huyen = row[huyenIdx] || 'CHƯA RÕ'; const key = cleanName(name);
 
                         if (customerMap.has(key)) { 
-                            duplicates++; 
-                            const existing = customerMap.get(key); 
-                            if (!existing.phone && phone) existing.phone = phone; 
-                            if (existing.xa === 'CHƯA RÕ' && xa) existing.xa = xa; 
-                            if (existing.huyen === 'CHƯA RÕ' && huyen) existing.huyen = huyen; 
+                            duplicates++; const existing = customerMap.get(key); 
+                            if (!existing.phone && phone) existing.phone = phone; if (existing.xa === 'CHƯA RÕ' && xa) existing.xa = xa; if (existing.huyen === 'CHƯA RÕ' && huyen) existing.huyen = huyen; 
                         } else {
                             const existingOld = oldCustomers.find(c => cleanName(c.name) === key);
                             customerMap.set(key, { 
@@ -168,13 +150,8 @@
                             });
                         }
                     };
-
-                    // Quét Cụm Bảng Bên Trái (Cột A đến E, Index 0 đến 4)
-                    processChunk(0, 1, 2, 3, 4);
-                    // Quét Cụm Bảng Bên Phải (Cột F đến J, Index 5 đến 9)
-                    processChunk(5, 6, 7, 8, 9);
+                    processChunk(0, 1, 2, 3, 4); processChunk(5, 6, 7, 8, 9);
                 }
-
                 const finalParsed = Array.from(customerMap.values());
                 if (finalParsed.length === 0) return setStatus({ type: 'error', text: 'Không trích xuất được KH nào.' });
                 setCustomers([...oldCustomers.filter(oc => !finalParsed.find(fc => fc.id === oc.id)), ...finalParsed]); 
@@ -187,13 +164,8 @@
                 setNewCustomer({ name: '', phone: '', xa: '', huyen: '', type: 'DUY_TRI' }); setShowAddForm(false); setFullMonthSchedule(null); setStatus({ type: 'success', text: 'Thêm khách hàng thành công.' });
             };
 
-            // Hàm thực thi Xóa KH sau khi ấn xác nhận trên Modal
             const confirmDeleteCustomer = () => { 
-                if(customerToDelete) {
-                    setCustomers(prev => prev.filter(c => c.id !== customerToDelete.id)); 
-                    setFullMonthSchedule(null); 
-                    setCustomerToDelete(null); // Đóng Modal
-                }
+                if(customerToDelete) { setCustomers(prev => prev.filter(c => c.id !== customerToDelete.id)); setFullMonthSchedule(null); setCustomerToDelete(null); }
             };
 
             const toggleType = (id) => { setCustomers(prev => prev.map(c => c.id === id ? { ...c, type: c.type === 'TRONG_DIEM' ? 'DUY_TRI' : 'TRONG_DIEM' } : c)); setFullMonthSchedule(null); };
@@ -239,8 +211,8 @@
                 }, 300);
             };
 
-            const buildSingleWeek = (isOddWeek) => {
-                const activeSubGroup = isOddWeek ? 1 : 2;
+            const buildSingleWeek = (weekNum) => {
+                const activeSubGroup = (weekNum % 2 !== 0) ? 1 : 2;
                 let activeCustomersPool = customers.filter(c => c.type === 'TRONG_DIEM' || c.subGroup === activeSubGroup).map(c => ({...c, sales: ''}));
                 const normalize = (str) => str ? str.toLowerCase().replace(/[àáạảãâầấậẩẫăằắặẳẵ]/g,"a").replace(/[èéẹẻẽêềếệểễ]/g,"e").replace(/[ìíịỉĩ]/g,"i").replace(/[òóọỏõôồốộổỗơờớợởỡ]/g,"o").replace(/[ùúụủũưừứựửữ]/g,"u").replace(/[ỳýỵỷỹ]/g,"y").replace(/đ/g,"d").trim() : "";
                 
@@ -263,7 +235,7 @@
                     let pulled = [];
                     for (let i = activeCustomersPool.length - 1; i >= 0; i--) {
                         const c = activeCustomersPool[i]; const h = normalize(c.huyen) || 'khac';
-                        if (targetDistricts.some(dist => h.includes(dist))) {
+                        if (targetDistricts.includes('all') || targetDistricts.some(dist => h.includes(dist))) {
                             pulled.push(c); activeCustomersPool.splice(i, 1);
                             if (pulled.length >= maxToPull) break;
                         }
@@ -271,26 +243,22 @@
                     return pulled;
                 };
 
-                daysKeys.forEach(d => { weekSchedule[d].items.push(...pullCustomersForDay(dayDistrictMap[d], 8)); });
-                daysKeys.forEach(d => {
-                    const currentCount = weekSchedule[d].items.length;
-                    if (currentCount < 12) { weekSchedule[d].items.push(...pullCustomersForDay(dayDistrictMap[d], 12 - currentCount)); }
-                });
+                daysKeys.forEach(d => { const needed = 8 - weekSchedule[d].items.length; if (needed > 0) weekSchedule[d].items.push(...pullCustomersForDay(dayDistrictMap[d], needed)); });
+                daysKeys.forEach(d => { const needed = 8 - weekSchedule[d].items.length; if (needed > 0) weekSchedule[d].items.push(...pullCustomersForDay(['all'], needed)); });
+                daysKeys.forEach(d => { const currentCount = weekSchedule[d].items.length; if (currentCount < 12) weekSchedule[d].items.push(...pullCustomersForDay(dayDistrictMap[d], 12 - currentCount)); });
 
                 while (activeCustomersPool.length > 0) {
-                    const c = activeCustomersPool.shift();
-                    let minDay = daysKeys[0]; 
+                    const c = activeCustomersPool.shift(); let minDay = daysKeys[0]; 
                     for (let d of daysKeys) { if (weekSchedule[d].items.length < weekSchedule[minDay].items.length) { minDay = d; } }
                     weekSchedule[minDay].items.push(c);
                 }
-
                 return weekSchedule;
             };
 
             const executeRoutingForMonth = () => {
                 setStatus({ type: 'loading', text: 'Đang tổng hợp lộ trình...' });
                 setTimeout(() => {
-                    setFullMonthSchedule({ 1: buildSingleWeek(true), 2: buildSingleWeek(false), 3: buildSingleWeek(true), 4: buildSingleWeek(false) });
+                    setFullMonthSchedule({ 1: buildSingleWeek(1), 2: buildSingleWeek(2), 3: buildSingleWeek(3), 4: buildSingleWeek(4) });
                     setActiveTab('schedule'); setActiveWeekTab(1); setSearchTerm('');
                     setStatus({ type: 'success', text: `Tạo lộ trình Tháng ${selectedMonth}/${selectedYear} thành công.` });
                 }, 500);
@@ -304,21 +272,14 @@
                 customers.forEach(c => {
                     for(let m = 1; m <= 12; m++) {
                         const val = Number(c.monthlySales?.[m]) || 0;
-                        if (m !== selectedMonth) { 
-                            if (qMonths.includes(m)) currentQuarterManualSales += val;
-                            yearManualSales += val;
-                        }
+                        if (m !== selectedMonth) { if (qMonths.includes(m)) currentQuarterManualSales += val; yearManualSales += val; }
                     }
                 });
 
                 if (fullMonthSchedule) {
                     [1, 2, 3, 4].forEach(week => {
                         Object.values(fullMonthSchedule[week]).forEach(day => {
-                            day.items.forEach(item => {
-                                const val = Number(item.sales) || 0;
-                                currentMonthSales += val;
-                                if (item.type === 'TRONG_DIEM') trongDiemSales += val;
-                            });
+                            day.items.forEach(item => { const val = Number(item.sales) || 0; currentMonthSales += val; if (item.type === 'TRONG_DIEM') trongDiemSales += val; });
                         });
                     });
                 }
@@ -424,6 +385,7 @@
                     [1, 2, 3, 4].forEach(weekNum => {
                         Object.keys(fullMonthSchedule[weekNum]).forEach(dayKey => {
                             const dayData = fullMonthSchedule[weekNum][dayKey];
+
                             const dayHeaderRow = wsSchedule.addRow([`[TUẦN ${weekNum}] NGÀY: ${dayData.day.toUpperCase()} - MỤC TIÊU: ${dayData.desc}`]);
                             wsSchedule.mergeCells(`A${schedRowIdx}:G${schedRowIdx}`);
                             dayHeaderRow.getCell(1).font = { bold: true, color: { argb: 'FF0047AB' } }; dayHeaderRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } }; dayHeaderRow.getCell(1).border = { top: {style:'medium'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; dayHeaderRow.getCell(1).alignment = { vertical: 'middle' }; wsSchedule.getRow(schedRowIdx).height = 22; schedRowIdx++;
@@ -473,14 +435,27 @@
             };
 
             const trongDiemCount = customers.filter(c => c.type === 'TRONG_DIEM').length;
+            const duyTriCount = customers.length - trongDiemCount;
             const geoStats = {}; customers.forEach(c => { const h = c.huyen || 'Khác'; geoStats[h] = (geoStats[h] || 0) + 1; });
             const geoArr = Object.entries(geoStats).sort((a,b) => b[1] - a[1]);
             const filteredCustomers = customers.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()) || (c.phone && c.phone.includes(searchTerm)) || c.huyen.toLowerCase().includes(searchTerm.toLowerCase()));
             const currentQuarterMonths = (() => { const q = Math.ceil(selectedMonth / 3); return [(q-1)*3 + 1, (q-1)*3 + 2, (q-1)*3 + 3]; })();
 
+            // --- TÍNH TOÁN HIỆU SUẤT KPI (TỐI GIẢN) ---
+            const estimatedVisits = (trongDiemCount * 4) + (duyTriCount * 2);
+            const minRequiredVisits = 200; // Tối thiểu 200 lượt/tháng
+            const maxAllowedVisits = 288; // 24 ngày công * 12 KH/ngày = 288 lượt
+            
+            let kpiStatus = 'good';
+            if (estimatedVisits < minRequiredVisits) kpiStatus = 'under';
+            else if (estimatedVisits > maxAllowedVisits) kpiStatus = 'over';
+
+            const gpsCount = customers.filter(c => c.location).length;
+            const gpsPercent = customers.length > 0 ? Math.round((gpsCount / customers.length) * 100) : 0;
+
             return (
                 <div className="min-h-screen bg-slate-100 p-2 md:p-6 font-sans text-slate-800">
-                    {/* MODAL XÓA KHÁCH HÀNG (Thay thế window.confirm) */}
+                    {/* MODAL XÓA KHÁCH HÀNG */}
                     {customerToDelete && (
                         <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm transition-opacity">
                             <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 animate-in zoom-in-95 duration-200">
@@ -488,7 +463,7 @@
                                     <i className="fa-solid fa-triangle-exclamation text-red-600 text-xl"></i>
                                 </div>
                                 <h3 className="text-xl font-black text-slate-800 text-center mb-2">Xác nhận xóa?</h3>
-                                <p className="text-slate-600 text-sm text-center mb-6">Bạn có chắc chắn muốn xóa khách hàng <strong className="text-red-600">{customerToDelete.name}</strong> khỏi hệ thống? (Thao tác này sẽ hủy lịch đi tuyến hiện tại).</p>
+                                <p className="text-slate-600 text-sm text-center mb-6">Bạn có chắc chắn muốn xóa khách hàng <strong className="text-red-600">{customerToDelete.name}</strong> khỏi hệ thống?</p>
                                 <div className="flex gap-3">
                                     <button onClick={() => setCustomerToDelete(null)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-lg transition">Hủy bỏ</button>
                                     <button onClick={confirmDeleteCustomer} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 rounded-lg shadow-md shadow-red-200 transition">Xóa ngay</button>
@@ -514,7 +489,10 @@
                             <div className="flex bg-slate-50 p-2 overflow-x-auto w-full border-b border-slate-100 justify-start md:justify-center gap-1">
                                 <button onClick={() => setActiveTab('upload')} className={`whitespace-nowrap px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'upload' ? 'bg-blue-600 shadow text-white' : 'text-slate-600 hover:bg-slate-200'}`}>1. Nạp File</button>
                                 <button onClick={() => setActiveTab('categorize')} disabled={customers.length === 0} className={`whitespace-nowrap px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'categorize' ? 'bg-blue-600 shadow text-white' : 'text-slate-600 hover:bg-slate-200'} disabled:opacity-40`}>2. Phân Loại</button>
-                                <button onClick={() => setActiveTab('analysis')} disabled={customers.length === 0} className={`whitespace-nowrap px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'analysis' ? 'bg-blue-600 shadow text-white' : 'text-slate-600 hover:bg-slate-200'} disabled:opacity-40`}>3. Tổng Hợp</button>
+                                <button onClick={() => setActiveTab('analysis')} disabled={customers.length === 0} className={`whitespace-nowrap px-4 py-2 rounded-lg text-sm font-bold transition-all relative ${activeTab === 'analysis' ? 'bg-blue-600 shadow text-white' : 'text-slate-600 hover:bg-slate-200'} disabled:opacity-40`}>
+                                    3. Đánh Giá & Phân Tích
+                                    {customers.length > 0 && kpiStatus !== 'good' && activeTab !== 'analysis' && <span className="absolute top-1 right-2 w-2.5 h-2.5 bg-orange-500 rounded-full animate-ping"></span>}
+                                </button>
                                 <button onClick={() => { if(!fullMonthSchedule) executeRoutingForMonth(); setActiveTab('schedule'); }} disabled={customers.length === 0} className={`whitespace-nowrap px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'schedule' ? 'bg-blue-600 shadow text-white' : 'text-slate-600 hover:bg-slate-200'} disabled:opacity-40`}>4. Lịch Chăm Sóc</button>
                             </div>
                             <div className={`px-4 py-2.5 text-[13px] font-bold flex items-center gap-2 ${status.type === 'error' ? 'bg-red-50 text-red-700' : status.type === 'loading' ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'}`}>
@@ -546,8 +524,8 @@
                             <div className="space-y-4 animate-in fade-in">
                                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
                                     <div className="flex flex-col md:flex-row gap-3 border-b border-slate-100 pb-4 mb-4">
-                                        <button onClick={() => setShowAddForm(!showAddForm)} className="flex-1 bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition"><i className="fa-solid fa-user-plus"></i> 1. Thêm KH Thủ Công (Nhập Tay)</button>
-                                        <button onClick={() => fileInputRef.current.click()} className="flex-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition"><i className="fa-solid fa-file-excel"></i> 2. Thêm Hàng Loạt (Úp File Excel)</button>
+                                        <button onClick={() => setShowAddForm(!showAddForm)} className="flex-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold py-2.5 rounded-lg flex items-center justify-center gap-2 transition border border-blue-200"><i className="fa-solid fa-user-plus"></i> Thêm thủ công</button>
+                                        <button onClick={() => fileInputRef.current.click()} className="flex-1 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold py-2.5 rounded-lg flex items-center justify-center gap-2 transition border border-slate-200"><i className="fa-solid fa-file-excel"></i> Up file bổ sung</button>
                                         <input type="file" accept=".xlsx, .xls" multiple ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
                                     </div>
 
@@ -561,49 +539,49 @@
                                                 <input type="text" placeholder="Huyện/Thị trấn" value={newCustomer.huyen} onChange={e => setNewCustomer({...newCustomer, huyen: e.target.value})} className="border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500" />
                                             </div>
                                             <div className="flex gap-2">
-                                                <button onClick={handleAddCustomer} className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded-lg text-sm transition shadow-sm">Lưu Vào Danh Sách</button>
+                                                <button onClick={handleAddCustomer} className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded-lg text-sm transition shadow-sm">Lưu</button>
                                                 <button onClick={() => setShowAddForm(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-4 py-2 rounded-lg text-sm transition">Hủy</button>
                                             </div>
                                         </div>
                                     )}
 
                                     <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
-                                        <div className="flex gap-4">
-                                            <div className="text-center px-2"><div className="text-[11px] font-bold text-slate-400 uppercase">Tổng KH</div><div className="text-xl font-black text-slate-800">{customers.length}</div></div>
+                                        <div className="flex gap-4 bg-slate-50 border border-slate-200 py-1.5 px-3 rounded-lg">
+                                            <div className="text-center px-2"><div className="text-[10px] font-bold text-slate-500 uppercase">Tổng KH</div><div className="text-lg font-black text-slate-800">{customers.length}</div></div>
                                             <div className="w-px bg-slate-200"></div>
-                                            <div className="text-center px-2"><div className="text-[11px] font-bold text-blue-500 uppercase">Trọng điểm</div><div className="text-xl font-black text-blue-600">{trongDiemCount}</div></div>
+                                            <div className="text-center px-2"><div className="text-[10px] font-bold text-blue-500 uppercase">Trọng điểm</div><div className="text-lg font-black text-blue-600">{trongDiemCount}</div></div>
                                         </div>
-                                        <div className="relative flex-1 md:w-64">
+                                        <div className="relative flex-1 md:max-w-xs w-full">
                                             <i className="fa-solid fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"></i>
-                                            <input type="text" placeholder="Tìm tên, SĐT, Huyện..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-slate-100 border border-slate-200 text-sm font-medium rounded-lg pl-9 pr-3 py-2 outline-none focus:border-blue-400" />
+                                            <input type="text" placeholder="Tìm tên, SĐT, Huyện..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-slate-50 border border-slate-200 text-sm font-medium rounded-lg pl-9 pr-3 py-2 outline-none focus:border-blue-400" />
                                         </div>
                                     </div>
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
                                         {filteredCustomers.map((c) => (
-                                            <div key={c.id} className={`p-4 rounded-xl border flex flex-col transition-all ${c.type === 'TRONG_DIEM' ? 'border-blue-300 bg-blue-50/30' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+                                            <div key={c.id} className={`p-4 rounded-xl border flex flex-col transition-all ${c.type === 'TRONG_DIEM' ? 'border-blue-300 bg-blue-50/40' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
                                                 <div className="flex justify-between items-start mb-2">
                                                     <div className="truncate pr-2 flex-1">
                                                         <div className="font-bold text-[15px] truncate text-slate-800">{c.name}</div>
                                                         <div className="text-[11px] text-slate-500 mt-0.5"><i className="fa-solid fa-location-dot"></i> {c.xa}, {c.huyen}</div>
                                                     </div>
-                                                    <button onClick={() => toggleType(c.id)} className={`shrink-0 text-[10px] uppercase font-bold px-2 py-1 rounded border transition-colors ${c.type === 'TRONG_DIEM' ? 'bg-blue-600 text-white border-blue-700' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'}`}>
+                                                    <button onClick={() => toggleType(c.id)} className={`shrink-0 text-[10px] uppercase font-bold px-2 py-1.5 rounded-md border transition-colors ${c.type === 'TRONG_DIEM' ? 'bg-blue-600 text-white border-blue-700 shadow-sm' : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'}`}>
                                                         {c.type === 'TRONG_DIEM' ? 'Trọng Điểm' : 'Duy Trì'}
                                                     </button>
                                                 </div>
                                                 
                                                 <div className="flex items-center justify-between border-t border-slate-100 pt-3 mt-1">
-                                                    <button onClick={() => setExpandedCustomer(expandedCustomer === c.id ? null : c.id)} className="text-[11px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-2 py-1.5 rounded transition border border-indigo-100 flex items-center gap-1.5">
-                                                        <i className="fa-solid fa-money-check-dollar"></i> Nhập DS Các Tháng
+                                                    <button onClick={() => setExpandedCustomer(expandedCustomer === c.id ? null : c.id)} className="text-[11px] bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold px-2.5 py-1.5 rounded transition border border-slate-200 flex items-center gap-1.5">
+                                                        <i className="fa-solid fa-pencil"></i> Nhập DS Các Tháng
                                                     </button>
-                                                    <button onClick={() => setCustomerToDelete(c)} className="w-8 h-8 flex items-center justify-center bg-red-50 hover:bg-red-100 text-red-500 border border-red-100 rounded-lg transition-colors" title="Xóa KH">
+                                                    <button onClick={() => setCustomerToDelete(c)} className="w-7 h-7 flex items-center justify-center hover:bg-red-50 text-slate-400 hover:text-red-500 rounded transition-colors" title="Xóa KH">
                                                         <i className="fa-solid fa-trash-can"></i>
                                                     </button>
                                                 </div>
 
                                                 {expandedCustomer === c.id && (
                                                     <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-2.5 animate-in zoom-in-95">
-                                                        <div className="text-[10px] font-bold text-slate-500 mb-2 uppercase text-center tracking-wider">Nhập Doanh Số Khóa Quý {Math.ceil(selectedMonth/3)}</div>
+                                                        <div className="text-[10px] font-bold text-slate-500 mb-2 uppercase text-center tracking-wider">Doanh Số Quý {Math.ceil(selectedMonth/3)}</div>
                                                         <div className="grid grid-cols-3 gap-1.5">
                                                             {currentQuarterMonths.map(m => (
                                                                 <input key={m} type="number" placeholder={`T${m}`} value={c.monthlySales?.[m] || ''} 
@@ -624,8 +602,63 @@
 
                         {activeTab === 'analysis' && customers.length > 0 && (
                             <div className="space-y-6 animate-in fade-in">
+                                
+                                {/* TỔNG QUAN HIỆU SUẤT KPI - TỐI GIẢN */}
                                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
-                                    <h3 className="font-bold text-slate-700 mb-4 text-lg">Tổng Hợp Doanh Số Tháng {selectedMonth}</h3>
+                                    <h3 className="font-bold text-slate-800 mb-4 text-lg flex items-center justify-between">
+                                        <span><i className="fa-solid fa-chart-line text-blue-600 mr-2"></i> HIỆU SUẤT TUYẾN (KPI)</span>
+                                    </h3>
+                                    
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        {/* Box 1: KPI Lượt Ghé */}
+                                        <div className={`bg-slate-50 border p-4 rounded-lg flex flex-col justify-between ${kpiStatus === 'under' ? 'border-orange-300' : kpiStatus === 'over' ? 'border-red-300' : 'border-emerald-300'}`}>
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div className="text-[11px] font-bold uppercase text-slate-600">Công suất dự kiến</div>
+                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${kpiStatus === 'under' ? 'bg-orange-100 text-orange-700' : kpiStatus === 'over' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                                    {kpiStatus === 'under' ? 'THIẾU' : kpiStatus === 'over' ? 'QUÁ TẢI' : 'ĐẠT'}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-end gap-1.5">
+                                                <div className={`text-3xl font-black ${kpiStatus === 'under' ? 'text-orange-600' : kpiStatus === 'over' ? 'text-red-600' : 'text-emerald-600'}`}>{estimatedVisits}</div>
+                                                <div className="text-sm font-bold text-slate-400 mb-1">lượt/tháng</div>
+                                            </div>
+                                            <div className="text-[11px] text-slate-500 font-medium mt-2 pt-2 border-t border-slate-200">
+                                                Mục tiêu: <strong>{minRequiredVisits} - 288</strong> lượt.
+                                            </div>
+                                        </div>
+
+                                        {/* Box 2: Tỉ lệ GPS */}
+                                        <div className={`bg-slate-50 border p-4 rounded-lg flex flex-col justify-between ${gpsPercent < 100 ? 'border-slate-200' : 'border-blue-300'}`}>
+                                            <div className="text-[11px] text-slate-600 font-bold uppercase mb-2">Tỉ lệ Định vị (GPS)</div>
+                                            <div className="flex items-end gap-1.5">
+                                                <div className={`text-3xl font-black ${gpsPercent === 100 ? 'text-blue-600' : 'text-slate-700'}`}>{gpsPercent}%</div>
+                                            </div>
+                                            <div className="text-[11px] text-slate-500 font-medium mt-2 pt-2 border-t border-slate-200">
+                                                <strong>{gpsCount}/{customers.length}</strong> KH đã lưu tọa độ
+                                            </div>
+                                        </div>
+
+                                        {/* Box 3: Hành Động */}
+                                        <div className="bg-slate-50 border border-slate-200 p-4 rounded-lg flex flex-col justify-center">
+                                            <div className="text-[11px] text-slate-600 font-bold uppercase mb-2"><i className="fa-solid fa-bolt text-orange-500"></i> Hành Động Nhanh</div>
+                                            <div className="text-sm font-medium text-slate-700">
+                                                {kpiStatus === 'good' ? (
+                                                    <span>Tiến độ <b>TỐI ƯU</b>. Đủ điều kiện đáp ứng KPI (8-12 CH/ngày). Bấm Tạo lịch để triển khai.</span>
+                                                ) : kpiStatus === 'under' ? (
+                                                    <span>Hụt KPI. <b>Cần mở mới thêm KH</b> hoặc nâng KH Duy Trì lên Trọng Điểm.</span>
+                                                ) : (
+                                                    <span>Quá tải. <b>Cần giảm tải</b>: Đổi bớt KH Trọng Điểm xuống Duy Trì.</span>
+                                                )}
+                                                {gpsPercent < 100 && (
+                                                    <div className="mt-1.5 text-xs text-blue-600">* Nhớ cập nhật GPS trên đường đi.</div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                                    <h3 className="font-bold text-slate-800 mb-4 text-lg">Tổng Hợp Doanh Số Tháng {selectedMonth}</h3>
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                         <div className="bg-slate-50 border border-slate-100 p-4 rounded-lg">
                                             <div className="text-[11px] text-slate-500 font-bold uppercase mb-1">DS Trọng Điểm</div>
@@ -653,30 +686,30 @@
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                                        <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2"><i className="fa-solid fa-users text-[18px]"></i> Tỉ Trọng Khách Hàng</h3>
+                                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                                        <h3 className="font-bold text-slate-700 mb-5 text-sm uppercase">Quy Mô Tập KH</h3>
                                         <div className="space-y-6">
                                             <div>
-                                                <div className="flex justify-between text-sm font-bold mb-2"><span className="text-blue-700">Khách Trọng Điểm</span><span className="text-blue-700">{trongDiemCount} CH ({Math.round((trongDiemCount/customers.length)*100)}%)</span></div>
-                                                <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden"><div className="bg-blue-600 h-4 rounded-full" style={{width: `${(trongDiemCount/customers.length)*100}%`}}></div></div>
+                                                <div className="flex justify-between text-sm font-bold mb-2"><span className="text-blue-700">Trọng Điểm</span><span className="text-blue-700">{trongDiemCount} CH ({Math.round((trongDiemCount/customers.length)*100)}%)</span></div>
+                                                <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden"><div className="bg-blue-600 h-3 rounded-full" style={{width: `${(trongDiemCount/customers.length)*100}%`}}></div></div>
                                             </div>
                                             <div>
-                                                <div className="flex justify-between text-sm font-bold mb-2"><span className="text-slate-600">Khách Duy Trì</span><span className="text-slate-600">{customers.length - trongDiemCount} CH ({Math.round(((customers.length - trongDiemCount)/customers.length)*100)}%)</span></div>
-                                                <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden"><div className="bg-slate-400 h-4 rounded-full" style={{width: `${((customers.length - trongDiemCount)/customers.length)*100}%`}}></div></div>
+                                                <div className="flex justify-between text-sm font-bold mb-2"><span className="text-slate-600">Duy Trì</span><span className="text-slate-600">{customers.length - trongDiemCount} CH ({Math.round(((customers.length - trongDiemCount)/customers.length)*100)}%)</span></div>
+                                                <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden"><div className="bg-slate-400 h-3 rounded-full" style={{width: `${((customers.length - trongDiemCount)/customers.length)*100}%`}}></div></div>
                                             </div>
                                         </div>
                                     </div>
 
-                                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                                        <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2"><i className="fa-solid fa-location-dot text-[18px]"></i> Phân Bổ Mật Độ</h3>
-                                        <div className="space-y-4 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
+                                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                                        <h3 className="font-bold text-slate-700 mb-5 text-sm uppercase">Phân Bổ Mật Độ</h3>
+                                        <div className="space-y-4 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
                                             {geoArr.map(([huyen, count], idx) => {
                                                 const percent = Math.round((count/customers.length)*100);
                                                 return (
                                                     <div key={idx} className="flex items-center gap-4">
-                                                        <div className="w-24 text-[13px] font-bold text-slate-700 truncate">{huyen}</div>
-                                                        <div className="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden"><div className="bg-emerald-500 h-3 rounded-full" style={{width: `${percent}%`}}></div></div>
-                                                        <div className="w-10 text-right text-sm font-black text-slate-800">{count}</div>
+                                                        <div className="w-24 text-[12px] font-bold text-slate-600 truncate">{huyen}</div>
+                                                        <div className="flex-1 bg-slate-100 rounded-full h-2.5 overflow-hidden"><div className="bg-emerald-500 h-2.5 rounded-full" style={{width: `${percent}%`}}></div></div>
+                                                        <div className="w-10 text-right text-[13px] font-black text-slate-800">{count}</div>
                                                     </div>
                                                 )
                                             })}
@@ -684,29 +717,29 @@
                                     </div>
                                 </div>
 
-                                <div className="flex justify-center mt-8">
-                                    <button onClick={executeRoutingForMonth} className="bg-blue-600 hover:bg-blue-700 text-white px-10 py-4 rounded-xl font-black text-lg flex items-center gap-3 shadow-xl active:scale-95"><i className="fa-solid fa-calendar-check text-[24px]"></i> TẠO LỊCH 1 THÁNG (4 TUẦN)</button>
+                                <div className="flex justify-center mt-6">
+                                    <button onClick={executeRoutingForMonth} className="bg-blue-600 hover:bg-blue-700 text-white px-10 py-4 rounded-xl font-black text-lg flex items-center gap-3 shadow-md active:scale-95 transition-all"><i className="fa-solid fa-calendar-check text-[20px]"></i> TẠO LỊCH 1 THÁNG (4 TUẦN)</button>
                                 </div>
                             </div>
                         )}
 
                         {activeTab === 'schedule' && fullMonthSchedule && (
                             <div className="space-y-5 animate-in fade-in">
-                                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between gap-4">
+                                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between gap-4">
                                     <div className="flex-1">
-                                        <div className="flex justify-between items-center bg-blue-50 border border-blue-200 p-3 rounded-lg">
+                                        <div className="flex justify-between items-center bg-slate-50 border border-slate-200 p-2.5 rounded-lg">
                                             <div>
-                                                <h4 className="font-bold text-blue-900 text-sm flex items-center gap-1.5"><i className="fa-solid fa-house-chimney"></i> Điểm Xuất Phát (Nhà)</h4>
-                                                <p className="text-xs text-blue-700 mt-1">{homeLocation ? 'Đã lưu định vị' : 'Chưa thiết lập (Dùng để tính km lộ trình)'}</p>
+                                                <h4 className="font-bold text-slate-800 text-sm flex items-center gap-1.5"><i className="fa-solid fa-house-chimney text-blue-600"></i> Điểm Xuất Phát (Nhà)</h4>
+                                                <p className="text-[11px] text-slate-500 font-medium mt-0.5">{homeLocation ? 'Đã lưu định vị' : 'Chưa thiết lập (Dùng để tính km lộ trình)'}</p>
                                             </div>
                                             <div className="flex gap-2">
-                                                <button onClick={handleSetHomeLocation} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md text-xs font-bold transition">{homeLocation ? 'Cập nhật' : 'Định vị ngay'}</button>
+                                                <button onClick={handleSetHomeLocation} className="bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md text-xs font-bold transition shadow-sm">{homeLocation ? 'Cập nhật' : 'Định vị'}</button>
                                             </div>
                                         </div>
                                     </div>
                                     
                                     <div className="flex flex-col gap-2 md:w-1/3">
-                                        <div className="flex items-center gap-2 bg-slate-100 border border-slate-300 px-3 py-2 rounded-lg font-bold text-slate-700 text-sm">
+                                        <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg font-bold text-slate-700 text-sm">
                                             <i className="fa-solid fa-calendar-days text-blue-600"></i><span>Tháng</span>
                                             <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="bg-transparent outline-none cursor-pointer text-blue-700">
                                                 {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => <option key={m} value={m}>{m}</option>)}
@@ -717,7 +750,7 @@
                                             </select>
                                         </div>
                                         <button onClick={exportToExcelReal} className="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-bold flex items-center justify-center gap-2 shadow-sm transition-transform active:scale-95 text-sm">
-                                            <i className="fa-solid fa-file-excel text-[16px]"></i> XUẤT 3 TAB BÁO CÁO EXCEL
+                                            <i className="fa-solid fa-file-excel text-[16px]"></i> XUẤT BÁO CÁO EXCEL
                                         </button>
                                     </div>
                                 </div>
@@ -731,55 +764,55 @@
 
                                 <div className="flex bg-slate-200 p-1.5 rounded-xl overflow-x-auto w-full border border-slate-300 shadow-inner">
                                     {[1, 2, 3, 4].map(week => (
-                                        <button key={week} onClick={() => setActiveWeekTab(week)} className={`flex-1 whitespace-nowrap px-4 py-3 rounded-lg text-sm font-black transition-all ${activeWeekTab === week ? 'bg-white shadow-md text-blue-700 scale-[1.02]' : 'text-slate-500 hover:text-slate-700'}`}>
+                                        <button key={week} onClick={() => setActiveWeekTab(week)} className={`flex-1 whitespace-nowrap px-4 py-2.5 rounded-lg text-sm font-black transition-all ${activeWeekTab === week ? 'bg-white shadow-md text-blue-700 scale-[1.02]' : 'text-slate-500 hover:text-slate-700'}`}>
                                             <i className={`fa-solid ${activeWeekTab === week ? 'fa-folder-open' : 'fa-folder'} mr-2`}></i> TUẦN {week}
                                         </button>
                                     ))}
                                 </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 animate-in fade-in zoom-in-95 duration-200" key={activeWeekTab}>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-in fade-in zoom-in-95 duration-200" key={activeWeekTab}>
                                     {Object.entries(fullMonthSchedule[activeWeekTab]).map(([key, data]) => {
                                         const count = data.items.length;
                                         const displayedItems = data.items.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()));
                                         
                                         let kpiColor = 'bg-emerald-100 text-emerald-700 border-emerald-200';
-                                        if (count < 8) kpiColor = 'bg-red-100 text-red-700 border-red-200';
+                                        if (count < 8) kpiColor = 'bg-orange-100 text-orange-700 border-orange-200';
 
                                         return (
                                             <div key={key} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm flex flex-col h-[500px]">
                                                 <div className="bg-slate-50 p-4 border-b border-slate-200">
                                                     <div className="flex justify-between items-center mb-3">
-                                                        <h3 className="font-black text-slate-800 text-xl">{data.day}</h3>
-                                                        <div className={`px-2.5 py-1.5 text-[11px] font-bold rounded-md border ${kpiColor}`}>{count}/12 Đại lý</div>
+                                                        <h3 className="font-black text-slate-800 text-lg">{data.day}</h3>
+                                                        <div className={`px-2 py-1 text-[11px] font-bold rounded-md border ${kpiColor}`}>{count}/12 Đại lý</div>
                                                     </div>
                                                     <div className="flex justify-between items-center">
-                                                        <div className="text-[11px] text-orange-700 flex items-center gap-1.5 font-bold bg-orange-100 px-2 py-1 rounded-md border border-orange-200 w-max truncate mr-2">
-                                                            <i className="fa-solid fa-truck text-[14px]"></i> {data.desc}
+                                                        <div className="text-[11px] text-slate-600 flex items-center gap-1.5 font-bold bg-white px-2 py-1 rounded border border-slate-200 w-max truncate mr-2">
+                                                            <i className="fa-solid fa-map text-[13px] text-blue-500"></i> {data.desc}
                                                         </div>
-                                                        <button onClick={() => handleOptimizeRoute(activeWeekTab, key)} className="text-[10px] bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-2 py-1 rounded font-bold transition">
-                                                            <i className="fa-solid fa-route"></i> Tối Ưu Lộ Trình
+                                                        <button onClick={() => handleOptimizeRoute(activeWeekTab, key)} className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1 rounded border border-indigo-100 font-bold transition whitespace-nowrap">
+                                                            <i className="fa-solid fa-route"></i> Lộ Trình
                                                         </button>
                                                     </div>
                                                 </div>
                                                 
-                                                <div className="p-3 flex-grow overflow-y-auto bg-slate-50/50 custom-scrollbar relative">
+                                                <div className="p-2.5 flex-grow overflow-y-auto bg-slate-50/50 custom-scrollbar relative">
                                                     {displayedItems.length === 0 ? (
                                                         <div className="text-center text-slate-400 text-sm py-8 font-medium">Không tìm thấy khách hàng.</div>
                                                     ) : (
-                                                        <ul className="space-y-3 pb-6">
+                                                        <ul className="space-y-2.5 pb-6">
                                                             {displayedItems.map((c, index) => {
                                                                 const loc = getCustomerLocation(c.id);
                                                                 const distance = loc && homeLocation ? getDistanceFromLatLonInKm(homeLocation.lat, homeLocation.lng, loc.lat, loc.lng) : '--';
                                                                 
                                                                 return (
-                                                                <li key={c.id} className={`bg-white p-3.5 rounded-xl border flex flex-col gap-2.5 shadow-sm transition-colors relative ${searchTerm ? 'border-blue-400 bg-blue-50/30' : 'border-slate-200 hover:border-blue-300'}`}>
-                                                                    <div className="absolute -left-2 -top-2 bg-slate-800 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold shadow">{index + 1}</div>
+                                                                <li key={c.id} className={`bg-white p-3 rounded-lg border flex flex-col gap-2.5 shadow-sm transition-colors relative ${searchTerm ? 'border-blue-400 bg-blue-50/30' : 'border-slate-200 hover:border-blue-300'}`}>
+                                                                    <div className="absolute -left-2 -top-2 bg-slate-700 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold shadow">{index + 1}</div>
                                                                     <div className="flex justify-between items-start ml-2">
                                                                         <div className="flex-1 min-w-0">
-                                                                            <div className="font-bold text-slate-800 text-[14px] truncate">{c.name}</div>
+                                                                            <div className="font-bold text-slate-800 text-[13px] truncate">{c.name}</div>
                                                                             <div className="text-[11px] text-slate-500 mt-0.5 font-medium truncate">{c.xa}, {c.huyen}</div>
                                                                         </div>
-                                                                        <span className={`shrink-0 text-[9px] uppercase font-bold px-1.5 py-0.5 rounded border ${c.type === 'TRONG_DIEM' ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                                                                        <span className={`shrink-0 text-[9px] uppercase font-bold px-1.5 py-0.5 rounded border ${c.type === 'TRONG_DIEM' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
                                                                             {c.type === 'TRONG_DIEM' ? 'Trọng điểm' : 'Duy trì'}
                                                                         </span>
                                                                     </div>
@@ -793,18 +826,18 @@
                                                                             />
                                                                         </div>
 
-                                                                        <div className="flex items-center justify-between mt-1">
+                                                                        <div className="flex items-center justify-between mt-0.5">
                                                                             <div className="flex items-center gap-2 text-xs">
-                                                                                <i className="fa-solid fa-map-location-dot text-orange-500 w-4 text-center"></i>
+                                                                                <i className="fa-solid fa-map-location-dot text-slate-400 w-4 text-center"></i>
                                                                                 {loc ? (
-                                                                                    <span className="text-slate-600 font-medium text-[11px]">Cách nhà: <span className="text-orange-600 font-bold">{distance} km</span></span>
+                                                                                    <span className="text-slate-600 font-medium text-[11px]">Cách nhà: <span className="text-blue-600 font-bold">{distance} km</span></span>
                                                                                 ) : (
                                                                                     <span className="text-slate-400 italic text-[11px]">Chưa có tọa độ</span>
                                                                                 )}
                                                                             </div>
                                                                             <div className="flex gap-1.5">
-                                                                                <button onClick={() => handleSetCustomerLocation(c.id)} className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded border border-slate-200 font-bold transition">{loc ? 'Cập nhật' : 'Định vị GPS'}</button>
-                                                                                {loc && <button onClick={() => handleRemoveCustomerLocation(c.id)} className="text-[10px] bg-red-50 hover:bg-red-100 text-red-600 px-2 py-1 rounded border border-red-100 font-bold transition">Xóa</button>}
+                                                                                <button onClick={() => handleSetCustomerLocation(c.id)} className="text-[10px] bg-slate-50 hover:bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 font-bold transition">{loc ? 'Cập nhật' : 'GPS'}</button>
+                                                                                {loc && <button onClick={() => handleRemoveCustomerLocation(c.id)} className="text-[10px] bg-white hover:bg-red-50 text-red-500 px-2 py-1 rounded border border-slate-200 font-bold transition">Xóa</button>}
                                                                             </div>
                                                                         </div>
                                                                     </div>
