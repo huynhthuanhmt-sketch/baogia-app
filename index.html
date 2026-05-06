@@ -110,12 +110,14 @@
             const handleFileUpload = async (event) => {
                 const files = event.target.files; if (!files || files.length === 0) return;
                 if (!librariesReady || !window.XLSX) return setStatus({ type: 'error', text: 'Thư viện chưa sẵn sàng.' });
-                setStatus({ type: 'loading', text: 'Đang xử lý dữ liệu...' });
+                setStatus({ type: 'loading', text: 'Đang tự động bóc tách dữ liệu...' });
                 let allData = [];
                 try {
                     for (let i = 0; i < files.length; i++) {
                         const buffer = await files[i].arrayBuffer(); const workbook = window.XLSX.read(buffer, { type: 'array' });
-                        const worksheet = workbook.Sheets[workbook.SheetNames[0]]; const jsonData = window.XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+                        // Chỉ lấy sheet đầu tiên (Sale Out)
+                        const worksheet = workbook.Sheets[workbook.SheetNames[0]]; 
+                        const jsonData = window.XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
                         allData = allData.concat(jsonData);
                     }
                     processAndMergeExcel(allData);
@@ -127,35 +129,93 @@
                 const customerMap = new Map(); let idCounter = 1; let duplicates = 0; const oldCustomers = [...customers];
                 const cleanName = (name) => String(name).toLowerCase().replace(/\s+/g, '').trim();
                 
+                // THUẬT TOÁN AI AUTO-DETECT (Tự tìm đúng cột Tháng bất chấp file BC06_26 hay file App)
+                let monthIndices = {};
+                let isExportFile = false;
+                for (let i = 0; i < Math.min(data.length, 20); i++) {
+                    const row = data[i];
+                    let foundMonths = 0;
+                    row.forEach((cell, idx) => {
+                        if(!cell) return;
+                        const str = String(cell).toLowerCase().trim().replace(/\s+/g, ' ');
+                        for(let m=1; m<=12; m++) {
+                            if (str === `tháng ${m}` || str === `tháng 0${m}` || str.startsWith(`tháng ${m}.`)) {
+                                monthIndices[m] = idx;
+                                foundMonths++;
+                            }
+                        }
+                    });
+                    if (foundMonths >= 6) { isExportFile = true; break; }
+                }
+                
+                // Backup an toàn: Nếu là file BC06_26 nhưng bị merge cell che lấp tiêu đề
+                if (isExportFile && Object.keys(monthIndices).length < 12) {
+                    monthIndices = { 1:7, 2:8, 3:9, 4:10, 5:11, 6:12, 7:13, 8:14, 9:15, 10:16, 11:17, 12:18 };
+                }
+
+                let hasRestoredSales = false;
+
                 for (let i = 0; i < data.length; i++) {
                     const row = data[i].map(cell => cell !== undefined && cell !== null ? cell.toString().trim() : '');
+                    
                     const processChunk = (sttIdx, nameIdx, phoneIdx, xaIdx, huyenIdx) => {
                         if (row.length <= nameIdx) return;
                         const stt = row[sttIdx]; const name = row[nameIdx];
                         if (!stt || isNaN(stt) || !name) return;
-                        const invalidWords = ['TÊN KHÁCH HÀNG', 'DOANH SỐ', 'BẢNG THEO DÕI', 'NVKD', 'CHỈ TIÊU'];
+                        const invalidWords = ['TÊN KHÁCH HÀNG', 'DOANH SỐ', 'BẢNG THEO DÕI', 'NVKD', 'CHỈ TIÊU', 'TỔNG CỘNG'];
                         if (invalidWords.some(w => name.toUpperCase().includes(w))) return;
+                        
                         const phone = row[phoneIdx] || ''; const xa = row[xaIdx] || 'CHƯA RÕ'; const huyen = row[huyenIdx] || 'CHƯA RÕ'; const key = cleanName(name);
+
+                        const existingOld = oldCustomers.find(c => cleanName(c.name) === key);
+                        let currentSales = existingOld && existingOld.monthlySales ? { ...existingOld.monthlySales } : {1:0,2:0,3:0,4:0,5:0,6:0,7:0,8:0,9:0,10:0,11:0,12:0};
+
+                        // HÚT DOANH SỐ NẾU LÀ FILE BÁO CÁO CŨ
+                        if (isExportFile && sttIdx === 0) {
+                            for (let m = 1; m <= 12; m++) {
+                                const rawVal = row[monthIndices[m]];
+                                if (rawVal) {
+                                    const val = Number(String(rawVal).replace(/[^0-9]/g, ''));
+                                    if (!isNaN(val) && val > 0) {
+                                        currentSales[m] = val;
+                                        hasRestoredSales = true;
+                                    }
+                                }
+                            }
+                        }
 
                         if (customerMap.has(key)) { 
                             duplicates++; const existing = customerMap.get(key); 
                             if (!existing.phone && phone) existing.phone = phone; if (existing.xa === 'CHƯA RÕ' && xa) existing.xa = xa; if (existing.huyen === 'CHƯA RÕ' && huyen) existing.huyen = huyen; 
+                            if (isExportFile && sttIdx === 0) {
+                                for (let m = 1; m <= 12; m++) { if (currentSales[m] > 0) existing.monthlySales[m] = currentSales[m]; }
+                            }
                         } else {
-                            const existingOld = oldCustomers.find(c => cleanName(c.name) === key);
                             customerMap.set(key, { 
-                                id: `MT1_${Date.now()}_${idCounter++}`, name: String(name), phone: phone, xa: xa, huyen: huyen, 
-                                type: existingOld ? existingOld.type : 'DUY_TRI', subGroup: idCounter % 2 === 0 ? 2 : 1, 
+                                id: existingOld ? existingOld.id : `MT1_${Date.now()}_${idCounter++}`, // Giữ nguyên ID gốc để không mất Lịch
+                                name: String(name), phone: phone, xa: xa, huyen: huyen, 
+                                type: existingOld ? existingOld.type : 'DUY_TRI', subGroup: existingOld ? existingOld.subGroup : (idCounter % 2 === 0 ? 2 : 1), 
                                 location: existingOld ? existingOld.location : null, 
-                                monthlySales: existingOld && existingOld.monthlySales ? existingOld.monthlySales : {1:0,2:0,3:0,4:0,5:0,6:0,7:0,8:0,9:0,10:0,11:0,12:0} 
+                                monthlySales: currentSales 
                             });
                         }
                     };
-                    processChunk(0, 1, 2, 3, 4); processChunk(5, 6, 7, 8, 9);
+                    
+                    // Phân nhánh đọc file: BC06_26 đọc 1 lần, File ngang cũ đọc 2 nửa
+                    if (isExportFile) {
+                        processChunk(0, 1, 2, 3, 4); 
+                    } else {
+                        processChunk(0, 1, 2, 3, 4); processChunk(5, 6, 7, 8, 9);
+                    }
                 }
                 const finalParsed = Array.from(customerMap.values());
                 if (finalParsed.length === 0) return setStatus({ type: 'error', text: 'Không trích xuất được KH nào.' });
                 setCustomers([...oldCustomers.filter(oc => !finalParsed.find(fc => fc.id === oc.id)), ...finalParsed]); 
-                setActiveTab('categorize'); setStatus({ type: 'success', text: `Nạp thành công ${finalParsed.length} KH chuẩn. Gộp ${duplicates} trùng.` }); setFullMonthSchedule(null);
+
+                let successMsg = `Nạp thành công ${finalParsed.length} KH chuẩn.`;
+                if (hasRestoredSales) successMsg += " Đã khôi phục Doanh số cũ!";
+                
+                setActiveTab('categorize'); setStatus({ type: 'success', text: successMsg }); setFullMonthSchedule(null);
             };
 
             const handleAddCustomer = () => {
@@ -298,17 +358,17 @@
                     wb.creator = 'MPE Routing System';
                     const currentQuarterCol = Math.ceil(selectedMonth / 3);
                     
-                    // SHEET 1: DOANH SỐ SALE OUT (FIX LƯA THƯA - THU GỌN CỘT)
+                    // SHEET 1: DOANH SỐ SALE OUT
                     const wsForm = wb.addWorksheet('DOANH SỐ SALE OUT', { views: [{ state: 'frozen', ySplit: 8 }] });
                     const columns = [{ width: 5 }, { width: 30 }, { width: 12 }, { width: 15 }, { width: 15 }, { width: 12 }, { width: 15 }];
                     for(let i=1; i<=17; i++) columns.push({ width: 11 }); columns.push({ width: 13 }); 
-                    for(let i=1; i<=31; i++) columns.push({ width: 8 }); // Thu hẹp cột Ngày để nhìn gọn hơn
+                    for(let i=1; i<=31; i++) columns.push({ width: 8 });
                     wsForm.columns = columns;
 
                     wsForm.mergeCells('D2:K2'); wsForm.getCell('D2').value = `BẢNG THEO DÕI DOANH SỐ KHÁCH HÀNG NĂM ${selectedYear}`; wsForm.getCell('D2').font = { bold: true, size: 14 };
                     wsForm.mergeCells('D3:F3'); wsForm.getCell('D3').value = 'NVKD : .....................';
                     wsForm.mergeCells('D4:F4'); wsForm.getCell('D4').value = `CHỈ TIÊU QUÝ ${currentQuarterCol}`; wsForm.getCell('G4').value = Number(targetQuarter); wsForm.getCell('G4').numFmt = '#,##0';
-                    wsForm.mergeCells('D5:F5'); wsForm.getCell('D5').value = 'THỰC HIỆN:'; wsForm.mergeCells('D6:F6'); wsForm.getCell('D6').value = 'TỈ LỆ % :'; wsForm.getCell('G6').value = { formula: 'G5/G4' }; wsForm.getCell('G6').numFmt = '0.00%';
+                    wsForm.mergeCells('D5:F5'); wsForm.getCell('D5').value = 'THỰC HIỆN:'; wsForm.mergeCells('D6:F6'); wsForm.getCell('D6').value = 'TỈ LỆ % :'; 
 
                     const headerRow = wsForm.getRow(8);
                     const headerValues = ['STT', 'TÊN KHÁCH HÀNG', 'SĐT', 'XÃ', 'HUYỆN', 'TỈNH', 'TÊN NPP', 'Tháng 1', 'Tháng 2', 'Tháng 3', 'QUÝ 1', 'Tháng 4', 'Tháng 5', 'Tháng 6', 'QUÝ 2', 'Tháng 7', 'Tháng 8', 'Tháng 9', 'QUÝ 3', 'Tháng 10', 'Tháng 11', 'Tháng 12', 'QUÝ 4', 'TỔNG NĂM', `DS TỔNG THÁNG ${selectedMonth}`];
@@ -323,48 +383,92 @@
                     [1, 2, 3, 4].forEach(week => { ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'].forEach(dayKey => { if (fullMonthSchedule[week][dayKey]) { fullMonthSchedule[week][dayKey].items.forEach(item => { if (item.sales && !isNaN(item.sales)) salesMap[item.id].days[dayCounter] += Number(item.sales); }); dayCounter++; } }); });
 
                     let rowIndex = 9;
+                    let totalColSums = Array(60).fill(0); // Mảng lưu trữ tổng để fix lỗi hiển thị Zalo
+
                     customers.forEach((c, idx) => {
                         const r = wsForm.getRow(rowIndex);
                         r.getCell(1).value = idx + 1; r.getCell(2).value = c.name; r.getCell(3).value = c.phone; r.getCell(4).value = c.xa; r.getCell(5).value = c.huyen; r.getCell(6).value = 'TIỀN GIANG'; r.getCell(7).value = 'LÊ NGUYỄN';
                         
+                        let daysSum = salesMap[c.id].days.reduce((a,b)=>a+b, 0);
+                        let mSales = {};
+
+                        // TÍNH TOÁN DỮ LIỆU THÁNG
                         for (let m = 1; m <= 12; m++) {
                             const targetCol = monthColMap[m];
-                            if (m === selectedMonth) { r.getCell(targetCol).value = { formula: `Y${rowIndex}` }; r.getCell(targetCol).font = { bold: true }; } 
-                            else { const val = Number(c.monthlySales?.[m]) || 0; if (val > 0) r.getCell(targetCol).value = val; }
+                            let val = 0;
+                            if (m === selectedMonth) { 
+                                val = daysSum;
+                                r.getCell(targetCol).value = { formula: `Y${rowIndex}`, result: val }; 
+                                r.getCell(targetCol).font = { bold: true }; 
+                            } else { 
+                                val = Number(c.monthlySales?.[m]) || 0; 
+                                if (val > 0) r.getCell(targetCol).value = val; 
+                            }
                             r.getCell(targetCol).numFmt = '#,##0';
+                            mSales[m] = val;
+                            totalColSums[targetCol] = (totalColSums[targetCol] || 0) + val;
                         }
-                        r.getCell(11).value = { formula: `SUM(H${rowIndex}:J${rowIndex})` }; r.getCell(11).font = { bold: true }; r.getCell(11).numFmt = '#,##0';
-                        r.getCell(15).value = { formula: `SUM(L${rowIndex}:N${rowIndex})` }; r.getCell(15).font = { bold: true }; r.getCell(15).numFmt = '#,##0';
-                        r.getCell(19).value = { formula: `SUM(P${rowIndex}:R${rowIndex})` }; r.getCell(19).font = { bold: true }; r.getCell(19).numFmt = '#,##0';
-                        r.getCell(23).value = { formula: `SUM(T${rowIndex}:V${rowIndex})` }; r.getCell(23).font = { bold: true }; r.getCell(23).numFmt = '#,##0';
-                        r.getCell(24).value = { formula: `K${rowIndex}+O${rowIndex}+S${rowIndex}+W${rowIndex}` }; r.getCell(24).font = { bold: true, color: { argb: 'FFFF0000' } }; r.getCell(24).numFmt = '#,##0';
-                        r.getCell(25).value = { formula: `SUM(Z${rowIndex}:BD${rowIndex})` }; r.getCell(25).font = { bold: true, color: { argb: 'FF0047AB' } }; r.getCell(25).numFmt = '#,##0';
 
-                        salesMap[c.id].days.forEach((val, dayIdx) => { if (val > 0) { r.getCell(26 + dayIdx).value = val; r.getCell(26 + dayIdx).numFmt = '#,##0'; } });
-                        // Align middle and wrap text for clean layout
+                        // THUẬT TOÁN ÉP KẾT QUẢ VÀO CÔNG THỨC EXCEL (Hardcode Result)
+                        let q1 = mSales[1]+mSales[2]+mSales[3];
+                        let q2 = mSales[4]+mSales[5]+mSales[6];
+                        let q3 = mSales[7]+mSales[8]+mSales[9];
+                        let q4 = mSales[10]+mSales[11]+mSales[12];
+                        let totalYear = q1+q2+q3+q4;
+
+                        r.getCell(11).value = { formula: `SUM(H${rowIndex}:J${rowIndex})`, result: q1 }; r.getCell(11).font = { bold: true }; r.getCell(11).numFmt = '#,##0';
+                        r.getCell(15).value = { formula: `SUM(L${rowIndex}:N${rowIndex})`, result: q2 }; r.getCell(15).font = { bold: true }; r.getCell(15).numFmt = '#,##0';
+                        r.getCell(19).value = { formula: `SUM(P${rowIndex}:R${rowIndex})`, result: q3 }; r.getCell(19).font = { bold: true }; r.getCell(19).numFmt = '#,##0';
+                        r.getCell(23).value = { formula: `SUM(T${rowIndex}:V${rowIndex})`, result: q4 }; r.getCell(23).font = { bold: true }; r.getCell(23).numFmt = '#,##0';
+                        
+                        r.getCell(24).value = { formula: `SUM(K${rowIndex},O${rowIndex},S${rowIndex},W${rowIndex})`, result: totalYear }; r.getCell(24).font = { bold: true, color: { argb: 'FFFF0000' } }; r.getCell(24).numFmt = '#,##0';
+                        r.getCell(25).value = { formula: `SUM(Z${rowIndex}:BD${rowIndex})`, result: daysSum }; r.getCell(25).font = { bold: true, color: { argb: 'FF0047AB' } }; r.getCell(25).numFmt = '#,##0';
+
+                        totalColSums[11] += q1; totalColSums[15] += q2; totalColSums[19] += q3; totalColSums[23] += q4;
+                        totalColSums[24] += totalYear; totalColSums[25] += daysSum;
+
+                        salesMap[c.id].days.forEach((val, dayIdx) => { 
+                            if (val > 0) { 
+                                r.getCell(26 + dayIdx).value = val; r.getCell(26 + dayIdx).numFmt = '#,##0'; 
+                                totalColSums[26 + dayIdx] += val;
+                            } 
+                        });
                         r.eachCell({ includeEmpty: true }, (cell, colNum) => { if(colNum <= 56) { cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; cell.alignment = { vertical: 'middle', wrapText: true }; }});
                         rowIndex++;
                     });
 
+                    // ĐỔ DỮ LIỆU TỔNG VÀO DÒNG CUỐI (Tránh lỗi bằng cách gán Result cứng)
                     const endDataRow = Math.max(8, rowIndex - 1);
                     const totalRow = wsForm.addRow([]);
                     totalRow.getCell(2).value = 'TỔNG CỘNG'; totalRow.getCell(2).font = { bold: true, color: { argb: 'FFFF0000' } }; totalRow.getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
                     
                     for(let col = 8; col <= 56; col++) {
                         const colLetter = wsForm.getColumn(col).letter;
-                        if (endDataRow >= 9) totalRow.getCell(col).value = { formula: `SUM(${colLetter}9:${colLetter}${endDataRow})` }; else totalRow.getCell(col).value = 0; 
+                        if (endDataRow >= 9) {
+                            totalRow.getCell(col).value = { formula: `SUM(${colLetter}9:${colLetter}${endDataRow})`, result: totalColSums[col] }; 
+                        } else { 
+                            totalRow.getCell(col).value = 0; 
+                        }
                         totalRow.getCell(col).numFmt = '#,##0'; totalRow.getCell(col).font = { bold: true, color: { argb: 'FFFF0000' } };
                     }
                     totalRow.eachCell({ includeEmpty: true }, (c, colNum) => { if(colNum <= 56) { c.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } }; c.alignment = { vertical: 'middle' }; } });
 
-                    const qColMapObj = { 1: 'K', 2: 'O', 3: 'S', 4: 'W' };
-                    if (endDataRow >= 9) wsForm.getCell('G5').value = { formula: `${qColMapObj[currentQuarterCol]}${endDataRow + 1}` }; else wsForm.getCell('G5').value = 0;
+                    // GẮN CHỈ TIÊU QUÝ LÊN HEADER AN TOÀN
+                    const qColMapObj = { 1: 11, 2: 15, 3: 19, 4: 23 };
+                    let actualQuarterSum = totalColSums[qColMapObj[currentQuarterCol]] || 0;
+                    const qLetter = wsForm.getColumn(qColMapObj[currentQuarterCol]).letter;
+
+                    if (endDataRow >= 9) { wsForm.getCell('G5').value = { formula: `${qLetter}${endDataRow + 1}`, result: actualQuarterSum }; } 
+                    else { wsForm.getCell('G5').value = 0; }
                     wsForm.getCell('G5').numFmt = '#,##0'; wsForm.getCell('G5').font = { bold: true, color: { argb: 'FFFF0000' }};
+
+                    wsForm.getCell('G6').value = { formula: 'IF(G4=0,0,G5/G4)', result: targetQuarter > 0 ? actualQuarterSum / targetQuarter : 0 };
+                    wsForm.getCell('G6').numFmt = '0.00%';
 
                     const qCols = { 1: [8, 9, 10, 11], 2: [12, 13, 14, 15], 3: [16, 17, 18, 19], 4: [20, 21, 22, 23] };
                     for (let c = 8; c <= 24; c++) if (!qCols[currentQuarterCol].includes(c) || c === 24) wsForm.getColumn(c).hidden = true;
 
-                    // SHEET 2: LỊCH ĐI TUYẾN (FIX LƯA THƯA - XÓA DÒNG TRỐNG)
+                    // SHEET 2: LỊCH ĐI TUYẾN
                     const wsSchedule = wb.addWorksheet(`LỊCH TUYẾN T${selectedMonth}`);
                     wsSchedule.columns = [
                         { header: 'STT', key: 'stt', width: 6 }, { header: 'TÊN KHÁCH HÀNG', key: 'name', width: 35 },
@@ -383,11 +487,12 @@
                     schedHeaderRow.eachCell((cell) => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE36C09' } }; cell.font = { color: { argb: 'FFFFFFFF' }, bold: true }; cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; });
 
                     let schedRowIdx = 3;
+                    let schedSalesTotal = 0;
                     
                     [1, 2, 3, 4].forEach(weekNum => {
                         Object.keys(fullMonthSchedule[weekNum]).forEach(dayKey => {
                             const dayData = fullMonthSchedule[weekNum][dayKey];
-                            if(dayData.items.length === 0) return; // Skip empty days to keep report tight
+                            if(dayData.items.length === 0) return;
 
                             const dayHeaderRow = wsSchedule.addRow([`[TUẦN ${weekNum}] NGÀY: ${dayData.day.toUpperCase()} - MỤC TIÊU: ${dayData.desc}`]);
                             wsSchedule.mergeCells(`A${schedRowIdx}:G${schedRowIdx}`);
@@ -395,7 +500,9 @@
 
                             let sttCounter = 1;
                             dayData.items.forEach(c => {
-                                const row = wsSchedule.addRow({ stt: sttCounter++, name: c.name, phone: c.phone, address: `${c.xa}, ${c.huyen}`, type: c.type === 'TRONG_DIEM' ? 'Trọng Điểm' : 'Duy Trì', sales: c.sales && !isNaN(c.sales) ? Number(c.sales) : 0, note: '' });
+                                const s = c.sales && !isNaN(c.sales) ? Number(c.sales) : 0;
+                                schedSalesTotal += s;
+                                const row = wsSchedule.addRow({ stt: sttCounter++, name: c.name, phone: c.phone, address: `${c.xa}, ${c.huyen}`, type: c.type === 'TRONG_DIEM' ? 'Trọng Điểm' : 'Duy Trì', sales: s, note: '' });
                                 row.eachCell({ includeEmpty: true }, (cell, colNumber) => { 
                                     cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; 
                                     cell.alignment = { vertical: 'middle', wrapText: true };
@@ -404,13 +511,12 @@
                                 });
                                 schedRowIdx++;
                             });
-                            // Đã XÓA vòng lặp thêm dòng trống (while sttCounter <= 8) để bảng khít và chuyên nghiệp hơn
                         });
                     });
 
                     const schedTotalRow = wsSchedule.addRow([]); wsSchedule.mergeCells(`A${schedRowIdx}:E${schedRowIdx}`);
                     schedTotalRow.getCell(1).value = 'TỔNG DOANH SỐ THU THẬP TRÊN TUYẾN THÁNG NÀY:'; schedTotalRow.getCell(1).font = { bold: true, color: { argb: 'FFFF0000' } }; schedTotalRow.getCell(1).alignment = { horizontal: 'right', vertical: 'middle' };
-                    if (schedRowIdx > 3) { schedTotalRow.getCell(6).value = { formula: `SUM(F3:F${schedRowIdx - 1})` }; } else { schedTotalRow.getCell(6).value = 0; }
+                    if (schedRowIdx > 3) { schedTotalRow.getCell(6).value = { formula: `SUM(F3:F${schedRowIdx - 1})`, result: schedSalesTotal }; } else { schedTotalRow.getCell(6).value = 0; }
                     schedTotalRow.getCell(6).numFmt = '#,##0'; schedTotalRow.getCell(6).font = { bold: true, color: { argb: 'FFFF0000' } };
                     schedTotalRow.eachCell({ includeEmpty: true }, (c, colNum) => { if(colNum <= 7) { c.border = { top: {style:'medium'}, left: {style:'thin'}, bottom: {style:'medium'}, right: {style:'thin'} }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } }; c.alignment = { vertical: 'middle' }; } });
                     wsSchedule.getRow(schedRowIdx).height = 25;
@@ -431,32 +537,48 @@
                     
                     wsSummary.eachRow((row, rowNumber) => { if (rowNumber > 2) { row.getCell(1).font = { bold: true }; row.getCell(1).border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; row.getCell(2).border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; row.getCell(1).alignment = { vertical: 'middle' }; row.getCell(2).alignment = { vertical: 'middle' }; if (rowNumber === 7 || rowNumber === 10) { row.getCell(2).font = { bold: true, color: {argb: 'FF008000'} }; } } });
 
+                    // --- XỬ LÝ LƯU FILE ---
                     const buffer = await wb.xlsx.writeBuffer(); 
-                    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
                     const fileName = `LichTuyen_BaoCao_Thang${selectedMonth}_${selectedYear}.xlsx`; 
+                    const mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+                    const blob = new Blob([buffer], { type: mimeType });
 
-                    // FIX LỖI TẢI XUỐNG TRÊN ZALO (Dùng FileReader chuyển sang Base64 Data URI)
-                    const reader = new FileReader();
-                    reader.onloadend = function() {
-                        const link = document.createElement('a'); 
-                        link.href = reader.result; 
-                        link.download = fileName; 
-                        document.body.appendChild(link); 
-                        link.click(); 
-                        setTimeout(() => document.body.removeChild(link), 300);
-                        setStatus({ type: 'success', text: 'Xuất file thành công.' });
-                    };
-                    reader.onerror = function() {
-                        // Fallback backup
+                    const file = new File([blob], fileName, { type: mimeType });
+                    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                        try {
+                            await navigator.share({
+                                files: [file],
+                                title: 'Báo Cáo Lịch Tuyến',
+                                text: `File Báo cáo tuyến tháng ${selectedMonth}/${selectedYear}`
+                            });
+                            setStatus({ type: 'success', text: 'Đã lưu/chia sẻ file thành công!' });
+                            return; 
+                        } catch (shareErr) {
+                            console.log('User cancelled share.', shareErr);
+                        }
+                    }
+
+                    try {
                         const url = window.URL.createObjectURL(blob); 
                         const link = document.createElement('a'); link.href = url; link.download = fileName; 
                         document.body.appendChild(link); link.click(); 
                         setTimeout(() => { document.body.removeChild(link); window.URL.revokeObjectURL(url); }, 300);
-                        setStatus({ type: 'success', text: 'Xuất file thành công (Phương thức 2).' });
-                    };
-                    reader.readAsDataURL(blob);
+                        setStatus({ type: 'success', text: 'Xuất file thành công.' });
+                    } catch (fallbackErr) {
+                        const reader = new FileReader();
+                        reader.onloadend = function() {
+                            const link = document.createElement('a'); 
+                            link.href = reader.result; 
+                            link.download = fileName; 
+                            document.body.appendChild(link); 
+                            link.click(); 
+                            setTimeout(() => document.body.removeChild(link), 300);
+                            setStatus({ type: 'success', text: 'Đã xuất file.' });
+                        };
+                        reader.readAsDataURL(blob);
+                    }
 
-                } catch (err) { setStatus({ type: 'error', text: 'Lỗi xuất file: ' + err.message }); }
+                } catch (err) { setStatus({ type: 'error', text: 'Lỗi kết xuất file: ' + err.message }); }
             };
 
             const trongDiemCount = customers.filter(c => c.type === 'TRONG_DIEM').length;
@@ -537,7 +659,7 @@
                                     <div onClick={() => librariesReady && fileInputRef.current.click()} className={`max-w-xl mx-auto border-2 border-dashed rounded-2xl p-10 cursor-pointer transition-all ${librariesReady ? 'border-blue-400 bg-blue-50 hover:bg-blue-100' : 'border-slate-300 bg-slate-50 opacity-60'}`}>
                                         <i className="fa-solid fa-file-excel text-blue-600 text-[48px] mb-4"></i>
                                         <h2 className="text-xl font-black text-blue-900 mb-2">QUÉT CHỌN CÁC FILE .XLSX CẦN GỘP</h2>
-                                        <p className="text-blue-600/70 text-sm font-medium">Hệ thống sẽ tự động quét cả 2 cột biểu mẫu ngang trong file để gộp khách.</p>
+                                        <p className="text-blue-600/70 text-sm font-medium">Hỗ trợ nạp Danh sách chuẩn HOẶC tự động khôi phục dữ liệu Doanh số từ File Báo cáo cũ (BC06_26 hoặc App xuất).</p>
                                     </div>
                                 )}
                                 <input type="file" accept=".xlsx, .xls" multiple ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
@@ -887,5 +1009,6 @@
     </script>
 </body>
 </html>
+
 
 
