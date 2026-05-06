@@ -21,8 +21,21 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
+        // Hàm tính khoảng cách đường chim bay (Haversine formula)
+        const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
+            const R = 6371; // Bán kính trái đất (km)
+            const dLat = (lat2 - lat1) * (Math.PI / 180);
+            const dLon = (lon2 - lon1) * (Math.PI / 180);
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
+                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return (R * c).toFixed(1);
+        };
+
         function App() {
             const [customers, setCustomers] = useState([]);
+            const [homeLocation, setHomeLocation] = useState(null); // Tọa độ nhà
             
             const currentObjDate = new Date();
             const [selectedMonth, setSelectedMonth] = useState(currentObjDate.getMonth() + 1);
@@ -34,7 +47,7 @@
             const [status, setStatus] = useState({ type: 'loading', text: 'Đang khởi động hệ thống...' });
             const [librariesReady, setLibrariesReady] = useState(false);
             const [duplicateCount, setDuplicateCount] = useState(0);
-            const [hasSavedData, setHasSavedData] = useState(false); // STATE QUẢN LÝ DỮ LIỆU CŨ
+            const [hasSavedData, setHasSavedData] = useState(false);
             const fileInputRef = useRef(null);
 
             // 1. KHỞI TẠO THƯ VIỆN & KIỂM TRA BỘ NHỚ LƯU TRỮ
@@ -48,16 +61,13 @@
                     document.head.appendChild(script);
                 });
 
-                // Tải thêm thư viện localForage để lưu trữ dữ liệu an toàn trên trình duyệt Zalo/Safari
                 Promise.all([
                     loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"),
                     loadScript("https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"),
                     loadScript("https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js")
                 ]).then(() => {
                     setLibrariesReady(true);
-                    
-                    // Kiểm tra xem lần trước có đang làm dở không
-                    window.localforage.getItem('mpe_routing_data').then(data => {
+                    window.localforage.getItem('mpe_routing_data_pro').then(data => {
                         if(data && data.customers && data.customers.length > 0) {
                             setHasSavedData(true);
                             setStatus({ type: 'success', text: 'Phát hiện phiên làm việc cũ.' });
@@ -70,30 +80,31 @@
                 });
             }, []);
 
-            // AUTO-SAVE: TỰ ĐỘNG LƯU DỮ LIỆU KHI CÓ THAY ĐỔI
+            // AUTO-SAVE: TỰ ĐỘNG LƯU DỮ LIỆU
             useEffect(() => {
                 if (librariesReady && customers.length > 0) {
-                    window.localforage.setItem('mpe_routing_data', {
+                    window.localforage.setItem('mpe_routing_data_pro', {
                         customers,
                         fullMonthSchedule,
                         selectedMonth,
-                        selectedYear
+                        selectedYear,
+                        homeLocation
                     });
                     setHasSavedData(true);
                 }
-            }, [customers, fullMonthSchedule, selectedMonth, selectedYear, librariesReady]);
+            }, [customers, fullMonthSchedule, selectedMonth, selectedYear, homeLocation, librariesReady]);
 
-            // HÀM KHÔI PHỤC DỮ LIỆU (TIẾP TỤC LÀM VIỆC)
+            // HÀM KHÔI PHỤC DỮ LIỆU
             const restoreData = () => {
                 setStatus({ type: 'loading', text: 'Đang khôi phục dữ liệu...' });
-                window.localforage.getItem('mpe_routing_data').then(data => {
+                window.localforage.getItem('mpe_routing_data_pro').then(data => {
                     if(data) {
                         setCustomers(data.customers || []);
                         setFullMonthSchedule(data.fullMonthSchedule || null);
                         setSelectedMonth(data.selectedMonth || selectedMonth);
                         setSelectedYear(data.selectedYear || selectedYear);
+                        setHomeLocation(data.homeLocation || null);
                         
-                        // Nếu đã có lịch thì nhảy thẳng sang Tab Lịch, chưa thì sang Tab Phân Loại
                         setActiveTab(data.fullMonthSchedule ? 'schedule' : 'categorize');
                         setStatus({ type: 'success', text: 'Đã khôi phục thành công!' });
                     }
@@ -102,14 +113,15 @@
 
             // HÀM XÓA DỮ LIỆU CŨ ĐỂ LÀM MỚI
             const clearDataAndNew = () => {
-                window.localforage.removeItem('mpe_routing_data');
+                window.localforage.removeItem('mpe_routing_data_pro');
                 setHasSavedData(false);
                 setCustomers([]);
                 setFullMonthSchedule(null);
-                if (fileInputRef.current) fileInputRef.current.click(); // Mở luôn hộp thoại chọn file
+                setHomeLocation(null);
+                if (fileInputRef.current) fileInputRef.current.click();
             };
 
-            // 2. NẠP FILE (TỐI GIẢN)
+            // 2. NẠP FILE (GIỮ LẠI ĐỊNH VỊ CŨ NẾU TRÙNG TÊN)
             const handleFileUpload = (event) => {
                 const file = event.target.files[0];
                 if (!file) return;
@@ -139,6 +151,7 @@
                 const seenNames = new Set();
                 let idCounter = 1;
                 let duplicates = 0;
+                const oldCustomers = [...customers]; // Dùng để bảo toàn định vị cũ
 
                 const cleanForDuplicateCheck = (name) => {
                     if (!name) return ""; 
@@ -152,14 +165,19 @@
                         duplicates++; return;
                     }
                     seenNames.add(normalizedCheck);
+                    
+                    // Tìm xem khách này trước đó đã có định vị chưa
+                    const existingCust = oldCustomers.find(c => cleanForDuplicateCheck(c.name) === normalizedCheck);
+
                     parsedData.push({
                         id: `MT1_${Date.now()}_${idCounter++}`, 
                         name: String(name),
                         phone: phone ? String(phone) : '',
                         xa: xa ? String(xa) : 'CHƯA RÕ',
                         huyen: huyen ? String(huyen) : 'CHƯA RÕ',
-                        type: 'DUY_TRI', 
-                        subGroup: idCounter % 2 === 0 ? 2 : 1 
+                        type: existingCust ? existingCust.type : 'DUY_TRI', 
+                        subGroup: idCounter % 2 === 0 ? 2 : 1,
+                        location: existingCust ? existingCust.location : null // Bảo toàn định vị
                     });
                 };
 
@@ -194,6 +212,97 @@
                 setFullMonthSchedule(null);
             };
 
+            // ---------------- TÍNH NĂNG ĐỊNH VỊ (GPS) ----------------
+            const handleSetHomeLocation = () => {
+                if (!navigator.geolocation) return setStatus({ type: 'error', text: 'Trình duyệt không hỗ trợ định vị.' });
+                setStatus({ type: 'loading', text: 'Đang lấy tọa độ nhà...' });
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        setHomeLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+                        setStatus({ type: 'success', text: 'Đã lưu Điểm Xuất Phát!' });
+                    },
+                    (err) => setStatus({ type: 'error', text: 'Vui lòng cấp quyền Vị Trí (Location) cho trình duyệt.' }),
+                    { enableHighAccuracy: true }
+                );
+            };
+
+            const handleSetCustomerLocation = (id) => {
+                if (!navigator.geolocation) return setStatus({ type: 'error', text: 'Trình duyệt không hỗ trợ định vị.' });
+                setStatus({ type: 'loading', text: 'Đang lấy tọa độ cửa hàng...' });
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        setCustomers(prev => prev.map(c => c.id === id ? { ...c, location: { lat: pos.coords.latitude, lng: pos.coords.longitude } } : c));
+                        setStatus({ type: 'success', text: 'Đã lưu định vị cửa hàng!' });
+                    },
+                    (err) => setStatus({ type: 'error', text: 'Vui lòng cấp quyền Vị Trí (Location) cho trình duyệt.' }),
+                    { enableHighAccuracy: true }
+                );
+            };
+
+            const handleRemoveCustomerLocation = (id) => {
+                setCustomers(prev => prev.map(c => c.id === id ? { ...c, location: null } : c));
+            };
+
+            const getCustomerLocation = (id) => customers.find(c => c.id === id)?.location;
+
+            // ---------------- TÍNH NĂNG DOANH SỐ & LỘ TRÌNH ----------------
+            const handleSalesChange = (week, day, customerId, salesValue) => {
+                const newSchedule = { ...fullMonthSchedule };
+                const dayItems = newSchedule[week][day].items;
+                const itemIndex = dayItems.findIndex(i => i.id === customerId);
+                if (itemIndex > -1) {
+                    dayItems[itemIndex].sales = salesValue;
+                }
+                setFullMonthSchedule(newSchedule);
+            };
+
+            const handleOptimizeRoute = (week, day) => {
+                if (!homeLocation) {
+                    setStatus({ type: 'error', text: 'Vui lòng thiết lập Vị trí Nhà trước khi tối ưu.' });
+                    return;
+                }
+                
+                const newSchedule = { ...fullMonthSchedule };
+                const dayItems = [...newSchedule[week][day].items];
+                
+                if (dayItems.length <= 1) return;
+
+                setStatus({ type: 'loading', text: 'Đang tối ưu lộ trình...' });
+                
+                setTimeout(() => {
+                    let currentLoc = homeLocation;
+                    const optimized = [];
+                    const unlocated = []; 
+                    
+                    // Tách khách có định vị và chưa có
+                    dayItems.forEach(item => {
+                        const loc = getCustomerLocation(item.id);
+                        if (loc) optimized.push({ ...item, _loc: loc });
+                        else unlocated.push(item);
+                    });
+
+                    // Thuật toán: Điểm gần nhất tiếp theo
+                    const finalOptimized = [];
+                    while (optimized.length > 0) {
+                        optimized.sort((a, b) => {
+                            const distA = getDistanceFromLatLonInKm(currentLoc.lat, currentLoc.lng, a._loc.lat, a._loc.lng);
+                            const distB = getDistanceFromLatLonInKm(currentLoc.lat, currentLoc.lng, b._loc.lat, b._loc.lng);
+                            return distA - distB;
+                        });
+                        const nearest = optimized.shift();
+                        finalOptimized.push(nearest);
+                        currentLoc = nearest._loc; // Cập nhật vị trí hiện tại
+                    }
+                    
+                    finalOptimized.forEach(item => delete item._loc);
+
+                    // Ghép lại: Khách có lộ trình đi trước, chưa có đi sau
+                    newSchedule[week][day].items = [...finalOptimized, ...unlocated];
+                    setFullMonthSchedule(newSchedule);
+                    setStatus({ type: 'success', text: `Đã tự động tối ưu tuyến ${newSchedule[week][day].day}!` });
+                }, 300);
+            };
+
             const trongDiemCount = customers.filter(c => c.type === 'TRONG_DIEM').length;
             const duyTriCount = customers.length - trongDiemCount;
 
@@ -207,7 +316,7 @@
             // 4. THUẬT TOÁN XẾP TUYẾN
             const buildSingleWeek = (isOddWeek) => {
                 const activeSubGroup = isOddWeek ? 1 : 2;
-                const activeCustomers = customers.filter(c => c.type === 'TRONG_DIEM' || c.subGroup === activeSubGroup).map(c => ({...c}));
+                const activeCustomers = customers.filter(c => c.type === 'TRONG_DIEM' || c.subGroup === activeSubGroup).map(c => ({...c, sales: ''}));
                 
                 const normalize = (str) => str ? str.toLowerCase().replace(/[àáạảãâầấậẩẫăằắặẳẵ]/g,"a").replace(/[èéẹẻẽêềếệểễ]/g,"e").replace(/[ìíịỉĩ]/g,"i").replace(/[òóọỏõôồốộổỗơờớợởỡ]/g,"o").replace(/[ùúụủũưừứựửữ]/g,"u").replace(/[ỳýỵỷỹ]/g,"y").replace(/đ/g,"d").trim() : "";
 
@@ -307,60 +416,71 @@
                     const currentQuarter = Math.ceil(selectedMonth / 3);
 
                     const wsDash = wb.addWorksheet('Tổng Quan Tháng');
-                    wsDash.columns = [{ width: 3 }, { width: 35 }, { width: 20 }, { width: 30 }];
+                    wsDash.columns = [{ width: 3 }, { width: 35 }, { width: 20 }, { width: 30 }, { width: 25 }];
 
-                    wsDash.mergeCells('B2:D2');
+                    wsDash.mergeCells('B2:E2');
                     const titleCell = wsDash.getCell('B2');
                     titleCell.value = `PHÂN TÍCH ĐỊA BÀN & LỊCH TUYẾN - THÁNG ${selectedMonth}/${selectedYear}`;
                     titleCell.font = { size: 14, bold: true, color: { argb: 'FF0047AB' } };
                     titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
-                    wsDash.mergeCells('B4:D4');
+                    wsDash.mergeCells('B4:E4');
                     wsDash.getCell('B4').value = '1. CẤU TRÚC KHÁCH HÀNG (Cố định toàn tháng)';
                     wsDash.getCell('B4').font = { bold: true };
 
-                    wsDash.addRow(['', 'Nhóm Khách Hàng', 'Số Lượng', 'Ghi Chú']);
+                    wsDash.addRow(['', 'Nhóm Khách Hàng', 'Số Lượng', 'Ghi Chú', '']);
                     wsDash.lastRow.eachCell((c, i) => {
-                        if(i>1) { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0047AB' } }; c.font = { color: { argb: 'FFFFFFFF' }, bold: true }; c.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; }
+                        if(i>1 && i<5) { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0047AB' } }; c.font = { color: { argb: 'FFFFFFFF' }, bold: true }; c.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; }
                     });
 
-                    const addRowDash = (col2, col3, col4) => {
-                        wsDash.addRow(['', col2, col3, col4]);
+                    const addRowDash = (col2, col3, col4, col5 = '') => {
+                        wsDash.addRow(['', col2, col3, col4, col5]);
                         const r = wsDash.lastRow;
-                        [2,3,4].forEach(i => r.getCell(i).border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} });
+                        [2,3,4,5].forEach(i => r.getCell(i).border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} });
                         return r;
                     };
 
-                    addRowDash('Khách Trọng Điểm', trongDiemCount, 'Thăm viếng mỗi tuần (4 lần/tháng)');
-                    addRowDash('Khách Duy Trì', duyTriCount, 'Xoay vòng luân phiên (2 lần/tháng)');
+                    addRowDash('Khách Trọng Điểm', trongDiemCount, 'Thăm viếng mỗi tuần (4 lần/tháng)', '');
+                    addRowDash('Khách Duy Trì', duyTriCount, 'Xoay vòng luân phiên (2 lần/tháng)', '');
                     wsDash.addRow([]); 
 
-                    wsDash.mergeCells(`B${wsDash.rowCount + 1}:D${wsDash.rowCount + 1}`);
-                    wsDash.lastRow.getCell(2).value = '2. TỔNG HỢP KIỂM SOÁT KPI (Chuẩn: 8-12 CH/ngày)';
+                    wsDash.mergeCells(`B${wsDash.rowCount + 1}:E${wsDash.rowCount + 1}`);
+                    wsDash.lastRow.getCell(2).value = '2. TỔNG HỢP KIỂM SOÁT KPI & DOANH SỐ THỰC TẾ';
                     wsDash.lastRow.getCell(2).font = { bold: true };
 
-                    wsDash.addRow(['', 'Tuần', 'Tổng Cửa Hàng Check-in', 'Đánh Giá']);
+                    wsDash.addRow(['', 'Tuần', 'Tổng Cửa Hàng Check-in', 'Đánh Giá KPI', 'Tổng Doanh Số (VNĐ)']);
                     wsDash.lastRow.eachCell((c, i) => {
                         if(i>1) { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE36C09' } }; c.font = { color: { argb: 'FFFFFFFF' }, bold: true }; c.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; }
                     });
 
                     let totalActiveMonth = 0;
+                    let totalSalesMonth = 0;
+
                     [1, 2, 3, 4].forEach(weekNum => {
                         let weekTotal = 0;
+                        let weekSales = 0;
                         Object.keys(fullMonthSchedule[weekNum]).forEach(day => {
-                            weekTotal += fullMonthSchedule[weekNum][day].items.length;
+                            fullMonthSchedule[weekNum][day].items.forEach(item => {
+                                weekTotal++;
+                                if (item.sales && !isNaN(item.sales)) weekSales += Number(item.sales);
+                            });
                         });
                         totalActiveMonth += weekTotal;
+                        totalSalesMonth += weekSales;
                         
                         let evalText = 'Đạt Chuẩn'; let evalColor = 'FF008000';
                         if (weekTotal < 48) { evalText = 'Chưa Tối Ưu (Dưới KPI)'; evalColor = 'FFFF0000'; }
                         
-                        const r = addRowDash(`Tuần ${weekNum}`, weekTotal, evalText);
+                        const r = addRowDash(`Tuần ${weekNum}`, weekTotal, evalText, weekSales);
                         r.getCell(4).font = { bold: true, color: { argb: evalColor } };
+                        r.getCell(5).numFmt = '#,##0';
+                        r.getCell(5).font = { bold: true, color: { argb: 'FF0047AB' } };
                     });
 
-                    const sumRow = addRowDash('TỔNG LƯỢT VIẾNG THĂM TRONG THÁNG', totalActiveMonth, '');
+                    const sumRow = addRowDash('TỔNG CỘNG TRONG THÁNG', totalActiveMonth, '', totalSalesMonth);
                     sumRow.font = { bold: true };
+                    sumRow.getCell(5).numFmt = '#,##0';
+                    sumRow.getCell(5).font = { bold: true, color: { argb: 'FFFF0000' } };
 
                     const wsData = wb.addWorksheet('Lịch Chi Tiết Từng Ngày', { views: [{ state: 'frozen', ySplit: 1 }] });
                     wsData.columns = [
@@ -374,7 +494,8 @@
                         { header: 'ĐIỆN THOẠI', key: 'phone', width: 15 },
                         { header: 'XÃ/PHƯỜNG', key: 'xa', width: 25 },
                         { header: 'HUYỆN/THỊ', key: 'huyen', width: 20 },
-                        { header: 'PHÂN LOẠI', key: 'type', width: 20 }
+                        { header: 'PHÂN LOẠI', key: 'type', width: 20 },
+                        { header: 'DOANH SỐ (VNĐ)', key: 'sales', width: 18 }
                     ];
 
                     wsData.getRow(1).eachCell((cell) => {
@@ -400,7 +521,8 @@
                                     day: dayData.day, 
                                     target: dayData.desc, 
                                     name: c.name, phone: c.phone, xa: c.xa, huyen: c.huyen, 
-                                    type: c.type === 'TRONG_DIEM' ? 'Khách Trọng Điểm' : 'Khách Duy Trì'
+                                    type: c.type === 'TRONG_DIEM' ? 'Khách Trọng Điểm' : 'Khách Duy Trì',
+                                    sales: c.sales && !isNaN(c.sales) ? Number(c.sales) : 0
                                 });
                                 row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
                                     cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
@@ -408,6 +530,10 @@
                                     if (colNumber === 11) { 
                                         cell.font = { bold: true, color: { argb: c.type === 'TRONG_DIEM' ? 'FF0047AB' : 'FF595959' } }; 
                                         cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                                    }
+                                    if (colNumber === 12) {
+                                        cell.numFmt = '#,##0'; // Định dạng tiền tệ
+                                        cell.font = { bold: true, color: { argb: 'FF008000' } };
                                     }
                                 });
                             });
@@ -424,7 +550,7 @@
                             await navigator.share({
                                 files: [file],
                                 title: fileName,
-                                text: `Báo cáo Lịch Tuyến MPE Tháng ${selectedMonth}/${selectedYear} (Đầy đủ 4 tuần)`
+                                text: `Báo cáo Lịch Tuyến & Doanh Số MPE Tháng ${selectedMonth}/${selectedYear}`
                             });
                             setStatus({ type: 'success', text: 'Đã mở bảng gửi file qua Zalo.' });
                             return; 
@@ -461,7 +587,7 @@
                             <div className="p-4 flex flex-col md:flex-row justify-between items-center gap-4 border-b border-slate-100">
                                 <div className="text-center md:text-left">
                                     <h1 className="text-2xl font-black text-blue-900 tracking-tight uppercase">Hệ Thống Lộ Trình MPE</h1>
-                                    <p className="text-sm font-medium text-slate-500 mt-1">Quản trị toàn diện: Tuần / Tháng / Quý / Năm</p>
+                                    <p className="text-sm font-medium text-slate-500 mt-1">Quản trị Tuyến - Định Vị GPS - Báo Cáo Doanh Số</p>
                                 </div>
                                 <div className="flex bg-slate-100 p-1.5 rounded-lg overflow-x-auto w-full md:w-auto">
                                     <button onClick={() => setActiveTab('upload')} className={`whitespace-nowrap px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'upload' ? 'bg-white shadow text-blue-800' : 'text-slate-500 hover:text-slate-700'}`}>1. Nạp File</button>
@@ -483,7 +609,7 @@
                             </div>
                         </div>
 
-                        {/* ================= TAB 1: NẠP FILE (ĐÃ TỐI GIẢN & THÊM TÍNH NĂNG TIẾP TỤC) ================= */}
+                        {/* ================= TAB 1: NẠP FILE ================= */}
                         {activeTab === 'upload' && (
                             <div className="bg-white rounded-xl p-6 md:p-10 shadow-sm border border-slate-200 text-center animate-in fade-in">
                                 {hasSavedData ? (
@@ -517,6 +643,7 @@
                             </div>
                         )}
 
+                        {/* ================= TAB 2: PHÂN LOẠI ================= */}
                         {activeTab === 'categorize' && customers.length > 0 && (
                             <div className="space-y-4 animate-in fade-in">
                                 {duplicateCount > 0 && (
@@ -577,6 +704,7 @@
                             </div>
                         )}
 
+                        {/* ================= TAB 3: PHÂN TÍCH ================= */}
                         {activeTab === 'analysis' && customers.length > 0 && (
                             <div className="space-y-6 animate-in fade-in">
                                 <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2"><i className="fa-solid fa-chart-pie text-blue-600"></i> Phân Tích Dữ Liệu Địa Bàn</h2>
@@ -633,12 +761,35 @@
                             </div>
                         )}
 
+                        {/* ================= TAB 4: QUẢN TRỊ LỊCH ================= */}
                         {activeTab === 'schedule' && fullMonthSchedule && (
                             <div className="space-y-5 animate-in fade-in">
                                 
-                                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
-                                    <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
-                                        <div className="bg-slate-100 border border-slate-300 px-4 py-2.5 rounded-lg flex items-center gap-2 font-bold text-slate-700">
+                                {/* Header thiết lập Vị trí & Export */}
+                                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between gap-4">
+                                    <div className="flex-1">
+                                        <div className="flex justify-between items-center bg-blue-50 border border-blue-200 p-3 rounded-lg">
+                                            <div>
+                                                <h4 className="font-bold text-blue-900 text-sm flex items-center gap-1.5"><i className="fa-solid fa-house-chimney"></i> Điểm Xuất Phát (Nhà)</h4>
+                                                <p className="text-xs text-blue-700 mt-1">
+                                                    {homeLocation ? `Đã lưu định vị: ${homeLocation.lat.toFixed(4)}, ${homeLocation.lng.toFixed(4)}` : 'Chưa thiết lập (Dùng để tính km lộ trình)'}
+                                                </p>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button onClick={handleSetHomeLocation} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md text-xs font-bold transition">
+                                                    {homeLocation ? 'Cập nhật' : 'Định vị ngay'}
+                                                </button>
+                                                {homeLocation && (
+                                                    <button onClick={() => setHomeLocation(null)} className="bg-red-100 hover:bg-red-200 text-red-600 px-3 py-1.5 rounded-md text-xs font-bold transition">
+                                                        Xóa
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex flex-col gap-2 md:w-1/3">
+                                        <div className="flex items-center gap-2 bg-slate-100 border border-slate-300 px-3 py-2 rounded-lg font-bold text-slate-700 text-sm">
                                             <i className="fa-solid fa-calendar-days text-blue-600"></i>
                                             <span>Tháng</span>
                                             <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="bg-transparent outline-none cursor-pointer text-blue-700">
@@ -649,16 +800,13 @@
                                                 {[2025, 2026, 2027, 2028].map(y => <option key={y} value={y}>{y}</option>)}
                                             </select>
                                         </div>
-                                        <div className="text-sm font-bold text-slate-500 uppercase tracking-wide bg-slate-100 px-3 py-2.5 rounded-lg">
-                                            Quý {Math.ceil(selectedMonth / 3)}
-                                        </div>
+                                        <button onClick={exportToExcelReal} className="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-bold flex items-center justify-center gap-2 shadow-sm transition-transform active:scale-95 text-sm">
+                                            <i className="fa-brands fa-whatsapp text-[16px]"></i> GỬI BÁO CÁO ZALO
+                                        </button>
                                     </div>
-                                    
-                                    <button onClick={exportToExcelReal} className="w-full md:w-auto bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-xl font-black flex items-center justify-center gap-2 shadow-lg shadow-green-200 transition-transform active:scale-95">
-                                        <i className="fa-brands fa-whatsapp text-[20px]"></i> XUẤT THÁNG & GỬI ZALO
-                                    </button>
                                 </div>
 
+                                {/* Tabs Tuần */}
                                 <div className="flex bg-slate-200 p-1.5 rounded-xl overflow-x-auto w-full border border-slate-300 shadow-inner">
                                     {[1, 2, 3, 4].map(week => (
                                         <button 
@@ -672,6 +820,7 @@
                                     ))}
                                 </div>
 
+                                {/* Cấu trúc Ngày */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 animate-in fade-in zoom-in-95 duration-200" key={activeWeekTab}>
                                     {Object.entries(fullMonthSchedule[activeWeekTab]).map(([key, data]) => {
                                         const count = data.items.length;
@@ -687,31 +836,78 @@
                                                             {count}/12 Đại lý
                                                         </div>
                                                     </div>
-                                                    <div className="text-[12px] text-orange-700 flex items-center gap-1.5 font-bold bg-orange-100 px-2.5 py-1.5 rounded-lg border border-orange-200 w-max">
-                                                        <i className="fa-solid fa-truck text-[14px]"></i> {data.desc}
+                                                    <div className="flex justify-between items-center">
+                                                        <div className="text-[11px] text-orange-700 flex items-center gap-1.5 font-bold bg-orange-100 px-2 py-1 rounded-md border border-orange-200 w-max">
+                                                            <i className="fa-solid fa-truck"></i> {data.desc}
+                                                        </div>
+                                                        <button onClick={() => handleOptimizeRoute(activeWeekTab, key)} className="text-[10px] bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-2 py-1 rounded font-bold transition">
+                                                            <i className="fa-solid fa-route"></i> Tối Ưu Lộ Trình
+                                                        </button>
                                                     </div>
                                                 </div>
                                                 
-                                                <div className="p-2.5 bg-slate-800 text-white text-[13px] font-semibold flex justify-between items-center">
-                                                    <span className="flex items-center gap-1.5"><i className="fa-solid fa-location-dot text-slate-400 text-[16px]"></i> Khu vực: {data.location}</span>
-                                                </div>
-                                                
-                                                <div className="p-3 flex-grow overflow-y-auto max-h-[300px] bg-slate-50/50 custom-scrollbar relative">
+                                                <div className="p-3 flex-grow overflow-y-auto max-h-[450px] bg-slate-50/50 custom-scrollbar relative">
                                                     {count === 0 ? (
                                                         <div className="text-center text-slate-400 text-sm py-8 font-medium">Lịch chưa phân bổ.</div>
                                                     ) : (
-                                                        <ul className="space-y-2 pb-10">
-                                                            {data.items.map(c => (
-                                                                <li key={c.id} className="bg-white p-3.5 rounded-xl border border-slate-200 flex justify-between items-start gap-3 shadow-sm hover:border-blue-200 transition-colors">
-                                                                    <div className="flex-1 min-w-0">
-                                                                        <div className="font-bold text-slate-800 text-[14px] truncate">{c.name}</div>
-                                                                        <div className="text-[11px] text-slate-500 mt-1 font-medium">{c.xa}, {c.huyen}</div>
+                                                        <ul className="space-y-3 pb-6">
+                                                            {data.items.map((c, index) => {
+                                                                const loc = getCustomerLocation(c.id);
+                                                                const distance = loc && homeLocation ? getDistanceFromLatLonInKm(homeLocation.lat, homeLocation.lng, loc.lat, loc.lng) : '--';
+                                                                
+                                                                return (
+                                                                <li key={c.id} className="bg-white p-3.5 rounded-xl border border-slate-200 flex flex-col gap-2.5 shadow-sm hover:border-blue-300 transition-colors relative">
+                                                                    <div className="absolute -left-2 -top-2 bg-slate-800 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold shadow">{index + 1}</div>
+                                                                    <div className="flex justify-between items-start ml-2">
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <div className="font-bold text-slate-800 text-[14px] truncate">{c.name}</div>
+                                                                            <div className="text-[11px] text-slate-500 mt-0.5 font-medium">{c.xa}, {c.huyen}</div>
+                                                                        </div>
+                                                                        <span className={`shrink-0 text-[9px] uppercase font-bold px-1.5 py-0.5 rounded border ${c.type === 'TRONG_DIEM' ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                                                                            {c.type === 'TRONG_DIEM' ? 'Trọng điểm' : 'Duy trì'}
+                                                                        </span>
                                                                     </div>
-                                                                    <span className={`shrink-0 text-[10px] uppercase font-bold px-1.5 py-1 rounded-md border ${c.type === 'TRONG_DIEM' ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
-                                                                        {c.type === 'TRONG_DIEM' ? 'Trọng điểm' : 'Duy trì'}
-                                                                    </span>
+
+                                                                    <div className="flex flex-col gap-2 border-t border-slate-100 pt-2 ml-2">
+                                                                        {/* Doanh số */}
+                                                                        <div className="flex items-center gap-2">
+                                                                            <i className="fa-solid fa-sack-dollar text-green-600 w-4 text-center"></i>
+                                                                            <input 
+                                                                                type="number" 
+                                                                                placeholder="Nhập doanh số bán (VNĐ)..." 
+                                                                                value={c.sales || ''} 
+                                                                                onChange={(e) => handleSalesChange(activeWeekTab, key, c.id, e.target.value)}
+                                                                                className="text-xs font-bold text-green-700 border border-slate-200 bg-slate-50 rounded px-2 py-1.5 flex-1 outline-none focus:border-green-500 focus:bg-white transition"
+                                                                            />
+                                                                        </div>
+
+                                                                        {/* GPS */}
+                                                                        <div className="flex items-center justify-between mt-1">
+                                                                            <div className="flex items-center gap-2 text-xs">
+                                                                                <i className="fa-solid fa-map-location-dot text-orange-500 w-4 text-center"></i>
+                                                                                {loc ? (
+                                                                                    <span className="text-slate-600 font-medium text-[11px]">
+                                                                                        Cách nhà: <span className="text-orange-600 font-bold">{distance} km</span>
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="text-slate-400 italic text-[11px]">Chưa có tọa độ</span>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="flex gap-1.5">
+                                                                                <button onClick={() => handleSetCustomerLocation(c.id)} className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded border border-slate-200 font-bold transition">
+                                                                                    {loc ? 'Cập nhật' : 'Định vị GPS'}
+                                                                                </button>
+                                                                                {loc && (
+                                                                                    <button onClick={() => handleRemoveCustomerLocation(c.id)} className="text-[10px] bg-red-50 hover:bg-red-100 text-red-600 px-2 py-1 rounded border border-red-100 font-bold transition">
+                                                                                        Xóa
+                                                                                    </button>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
                                                                 </li>
-                                                            ))}
+                                                                );
+                                                            })}
                                                         </ul>
                                                     )}
                                                     
@@ -733,6 +929,9 @@
                         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
                         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
                         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+                        /* Xóa mũi tên số lượng của input type=number */
+                        input[type=number]::-webkit-inner-spin-button, 
+                        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
                     `}} />
                 </div>
             );
@@ -743,4 +942,5 @@
     </script>
 </body>
 </html>
+
 
