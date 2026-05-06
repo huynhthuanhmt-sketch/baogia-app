@@ -21,35 +21,21 @@
     <script type="text/babel">
         const { useState, useEffect, useRef, useCallback, memo } = React;
 
-        // --- COMPONENT TỐI ƯU HIỆU NĂNG: CHỐNG LAG KHI NHẬP DOANH SỐ ---
         const SaleInputCell = memo(({ initialValue, onSave }) => {
             const [val, setVal] = useState(initialValue || '');
-            
             useEffect(() => { setVal(initialValue || ''); }, [initialValue]);
-            
-            const handleBlur = () => {
-                if (val !== initialValue) onSave(val);
-            };
-
+            const handleBlur = () => { if (val !== initialValue) onSave(val); };
             return (
-                <input 
-                    type="number" 
-                    placeholder="Nhập DS (VNĐ)..." 
-                    value={val} 
-                    onChange={(e) => setVal(e.target.value)} 
-                    onBlur={handleBlur}
+                <input type="number" placeholder="Nhập DS (VNĐ)..." value={val} onChange={(e) => setVal(e.target.value)} onBlur={handleBlur}
                     className="text-xs font-bold text-green-700 border border-slate-200 bg-slate-50 rounded px-2 py-1.5 flex-1 outline-none focus:border-green-500 focus:bg-white transition" 
                 />
             );
         });
 
         const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
-            const R = 6371; 
-            const dLat = (lat2 - lat1) * (Math.PI / 180);
-            const dLon = (lon2 - lon1) * (Math.PI / 180);
+            const R = 6371; const dLat = (lat2 - lat1) * (Math.PI / 180); const dLon = (lon2 - lon1) * (Math.PI / 180);
             const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            return (R * c).toFixed(1);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); return (R * c).toFixed(1);
         };
 
         const formatVND = (amount) => new Intl.NumberFormat('vi-VN').format(amount || 0);
@@ -68,10 +54,12 @@
             const [targetQuarter, setTargetQuarter] = useState(600000000);
             const [targetYear, setTargetYear] = useState(2400000000);
 
-            // UI States
             const [showAddForm, setShowAddForm] = useState(false);
             const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', xa: '', huyen: '', type: 'DUY_TRI' });
             const [expandedCustomer, setExpandedCustomer] = useState(null);
+            
+            // STATE MỚI: QUẢN LÝ MODAL XÓA KHÁCH HÀNG (Thay thế window.confirm)
+            const [customerToDelete, setCustomerToDelete] = useState(null);
 
             const [activeTab, setActiveTab] = useState('upload'); 
             const [status, setStatus] = useState({ type: 'loading', text: 'Đang khởi động hệ thống...' });
@@ -82,11 +70,8 @@
             useEffect(() => {
                 const loadScript = (src) => new Promise((resolve, reject) => {
                     if (document.querySelector(`script[src="${src}"]`)) return resolve();
-                    const script = document.createElement('script');
-                    script.src = src; script.onload = resolve; script.onerror = reject;
-                    document.head.appendChild(script);
+                    const script = document.createElement('script'); script.src = src; script.onload = resolve; script.onerror = reject; document.head.appendChild(script);
                 });
-
                 Promise.all([
                     loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"),
                     loadScript("https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"),
@@ -94,12 +79,8 @@
                 ]).then(() => {
                     setLibrariesReady(true);
                     window.localforage.getItem('routing_data_pro_v3').then(data => {
-                        if(data && data.customers && data.customers.length > 0) {
-                            setHasSavedData(true);
-                            setStatus({ type: 'success', text: 'Phát hiện phiên làm việc cũ.' });
-                        } else {
-                            setStatus({ type: 'success', text: 'Hệ thống đã sẵn sàng.' });
-                        }
+                        if(data && data.customers && data.customers.length > 0) { setHasSavedData(true); setStatus({ type: 'success', text: 'Phát hiện phiên làm việc cũ.' }); } 
+                        else { setStatus({ type: 'success', text: 'Hệ thống đã sẵn sàng.' }); }
                     });
                 }).catch(() => setStatus({ type: 'error', text: 'Lỗi tải thư viện. Vui lòng kiểm tra mạng.' }));
             }, []);
@@ -107,9 +88,7 @@
             useEffect(() => {
                 if (librariesReady && customers.length > 0) {
                     const timeoutId = setTimeout(() => {
-                        window.localforage.setItem('routing_data_pro_v3', {
-                            customers, fullMonthSchedule, selectedMonth, selectedYear, homeLocation, targetQuarter, targetYear
-                        });
+                        window.localforage.setItem('routing_data_pro_v3', { customers, fullMonthSchedule, selectedMonth, selectedYear, homeLocation, targetQuarter, targetYear });
                         setHasSavedData(true);
                     }, 500);
                     return () => clearTimeout(timeoutId);
@@ -120,156 +99,116 @@
                 setStatus({ type: 'loading', text: 'Đang khôi phục dữ liệu...' });
                 window.localforage.getItem('routing_data_pro_v3').then(data => {
                     if(data) {
-                        setCustomers(data.customers || []);
-                        setFullMonthSchedule(data.fullMonthSchedule || null);
-                        setSelectedMonth(data.selectedMonth || selectedMonth);
-                        setSelectedYear(data.selectedYear || selectedYear);
-                        setHomeLocation(data.homeLocation || null);
-                        if(data.targetQuarter) setTargetQuarter(data.targetQuarter);
-                        if(data.targetYear) setTargetYear(data.targetYear);
-                        
-                        setActiveTab(data.fullMonthSchedule ? 'schedule' : 'categorize');
-                        setStatus({ type: 'success', text: 'Đã khôi phục thành công!' });
+                        setCustomers(data.customers || []); setFullMonthSchedule(data.fullMonthSchedule || null); setSelectedMonth(data.selectedMonth || selectedMonth); setSelectedYear(data.selectedYear || selectedYear); setHomeLocation(data.homeLocation || null);
+                        if(data.targetQuarter) setTargetQuarter(data.targetQuarter); if(data.targetYear) setTargetYear(data.targetYear);
+                        setActiveTab(data.fullMonthSchedule ? 'schedule' : 'categorize'); setStatus({ type: 'success', text: 'Đã khôi phục thành công!' });
                     }
                 });
             };
 
-            const clearDataAndNew = () => {
-                window.localforage.removeItem('routing_data_pro_v3');
-                setHasSavedData(false); setCustomers([]); setFullMonthSchedule(null); setHomeLocation(null);
-                if (fileInputRef.current) fileInputRef.current.click();
-            };
-
-            const goBack = () => {
-                setSearchTerm('');
-                if (activeTab === 'schedule') setActiveTab('analysis');
-                else if (activeTab === 'analysis') setActiveTab('categorize');
-                else if (activeTab === 'categorize') setActiveTab('upload');
-            };
+            const clearDataAndNew = () => { window.localforage.removeItem('routing_data_pro_v3'); setHasSavedData(false); setCustomers([]); setFullMonthSchedule(null); setHomeLocation(null); if (fileInputRef.current) fileInputRef.current.click(); };
+            const goBack = () => { setSearchTerm(''); if (activeTab === 'schedule') setActiveTab('analysis'); else if (activeTab === 'analysis') setActiveTab('categorize'); else if (activeTab === 'categorize') setActiveTab('upload'); };
 
             const handleFileUpload = async (event) => {
-                const files = event.target.files;
-                if (!files || files.length === 0) return;
+                const files = event.target.files; if (!files || files.length === 0) return;
                 if (!librariesReady || !window.XLSX) return setStatus({ type: 'error', text: 'Thư viện chưa sẵn sàng.' });
-
                 setStatus({ type: 'loading', text: 'Đang xử lý dữ liệu...' });
                 let allData = [];
                 try {
                     for (let i = 0; i < files.length; i++) {
-                        const file = files[i];
-                        const buffer = await file.arrayBuffer();
-                        const workbook = window.XLSX.read(buffer, { type: 'array' });
-                        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-                        const jsonData = window.XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+                        const buffer = await files[i].arrayBuffer(); const workbook = window.XLSX.read(buffer, { type: 'array' });
+                        const worksheet = workbook.Sheets[workbook.SheetNames[0]]; const jsonData = window.XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
                         allData = allData.concat(jsonData);
                     }
                     processAndMergeExcel(allData);
-                } catch (err) {
-                    setStatus({ type: 'error', text: 'Lỗi định dạng file: ' + err.message });
-                }
+                } catch (err) { setStatus({ type: 'error', text: 'Lỗi định dạng file: ' + err.message }); }
                 if (fileInputRef.current) fileInputRef.current.value = '';
             };
 
+            // =========================================================
+            // CORE FIX: THUẬT TOÁN ĐỌC FILE EXCEL 2 BẢNG (TRÁI VÀ PHẢI)
+            // =========================================================
             const processAndMergeExcel = (data) => {
-                const customerMap = new Map();
-                let idCounter = 1;
-                let duplicates = 0;
-                const oldCustomers = [...customers];
+                const customerMap = new Map(); let idCounter = 1; let duplicates = 0; const oldCustomers = [...customers];
                 const cleanName = (name) => String(name).toLowerCase().replace(/\s+/g, '').trim();
-
-                const isCustomerRow = (row) => {
-                    if (!row || row.length < 2) return false;
-                    const stt = String(row[0]).trim();
-                    const name = String(row[1]).trim();
-                    const invalidWords = ['TÊN KHÁCH HÀNG', 'DOANH SỐ', 'BẢNG THEO DÕI', 'NVKD', 'CHỈ TIÊU'];
-                    if (stt && !isNaN(stt) && name) return !invalidWords.some(w => name.toUpperCase().includes(w));
-                    return false;
-                };
-
+                
                 for (let i = 0; i < data.length; i++) {
-                    const row = data[i].map(cell => cell ? cell.toString().trim() : '');
-                    if (isCustomerRow(row)) {
-                        const name = row[1]; const phone = row[2] || ''; const xa = row[3] || 'CHƯA RÕ'; const huyen = row[4] || 'CHƯA RÕ';
+                    const row = data[i].map(cell => cell !== undefined && cell !== null ? cell.toString().trim() : '');
+
+                    // Hàm quét một cụm cột xác định
+                    const processChunk = (sttIdx, nameIdx, phoneIdx, xaIdx, huyenIdx) => {
+                        if (row.length <= nameIdx) return;
+                        const stt = row[sttIdx];
+                        const name = row[nameIdx];
+                        
+                        // Nếu không phải số thứ tự hợp lệ hoặc tên trống thì bỏ qua
+                        if (!stt || isNaN(stt) || !name) return;
+                        
+                        const invalidWords = ['TÊN KHÁCH HÀNG', 'DOANH SỐ', 'BẢNG THEO DÕI', 'NVKD', 'CHỈ TIÊU'];
+                        if (invalidWords.some(w => name.toUpperCase().includes(w))) return;
+
+                        const phone = row[phoneIdx] || '';
+                        const xa = row[xaIdx] || 'CHƯA RÕ';
+                        const huyen = row[huyenIdx] || 'CHƯA RÕ';
                         const key = cleanName(name);
 
-                        if (customerMap.has(key)) {
-                            duplicates++;
-                            const existing = customerMap.get(key);
-                            if (!existing.phone && phone) existing.phone = phone;
-                            if (existing.xa === 'CHƯA RÕ' && xa) existing.xa = xa;
-                            if (existing.huyen === 'CHƯA RÕ' && huyen) existing.huyen = huyen;
+                        if (customerMap.has(key)) { 
+                            duplicates++; 
+                            const existing = customerMap.get(key); 
+                            if (!existing.phone && phone) existing.phone = phone; 
+                            if (existing.xa === 'CHƯA RÕ' && xa) existing.xa = xa; 
+                            if (existing.huyen === 'CHƯA RÕ' && huyen) existing.huyen = huyen; 
                         } else {
                             const existingOld = oldCustomers.find(c => cleanName(c.name) === key);
-                            customerMap.set(key, {
-                                id: `MT1_${Date.now()}_${idCounter++}`, name: String(name), phone: phone, xa: xa, huyen: huyen,
-                                type: existingOld ? existingOld.type : 'DUY_TRI', subGroup: idCounter % 2 === 0 ? 2 : 1,
-                                location: existingOld ? existingOld.location : null,
-                                monthlySales: existingOld && existingOld.monthlySales ? existingOld.monthlySales : {1:0,2:0,3:0,4:0,5:0,6:0,7:0,8:0,9:0,10:0,11:0,12:0}
+                            customerMap.set(key, { 
+                                id: `MT1_${Date.now()}_${idCounter++}`, name: String(name), phone: phone, xa: xa, huyen: huyen, 
+                                type: existingOld ? existingOld.type : 'DUY_TRI', subGroup: idCounter % 2 === 0 ? 2 : 1, 
+                                location: existingOld ? existingOld.location : null, 
+                                monthlySales: existingOld && existingOld.monthlySales ? existingOld.monthlySales : {1:0,2:0,3:0,4:0,5:0,6:0,7:0,8:0,9:0,10:0,11:0,12:0} 
                             });
                         }
-                    }
+                    };
+
+                    // Quét Cụm Bảng Bên Trái (Cột A đến E, Index 0 đến 4)
+                    processChunk(0, 1, 2, 3, 4);
+                    // Quét Cụm Bảng Bên Phải (Cột F đến J, Index 5 đến 9)
+                    processChunk(5, 6, 7, 8, 9);
                 }
+
                 const finalParsed = Array.from(customerMap.values());
                 if (finalParsed.length === 0) return setStatus({ type: 'error', text: 'Không trích xuất được KH nào.' });
-
                 setCustomers([...oldCustomers.filter(oc => !finalParsed.find(fc => fc.id === oc.id)), ...finalParsed]); 
-                setActiveTab('categorize');
-                setStatus({ type: 'success', text: `Nạp thành công ${finalParsed.length} KH chuẩn. Gộp ${duplicates} trùng.` });
-                setFullMonthSchedule(null);
+                setActiveTab('categorize'); setStatus({ type: 'success', text: `Nạp thành công ${finalParsed.length} KH chuẩn. Gộp ${duplicates} trùng.` }); setFullMonthSchedule(null);
             };
 
             const handleAddCustomer = () => {
-                if(!newCustomer.name) { setStatus({ type: 'error', text: 'Vui lòng nhập tên khách hàng.' }); return; }
-                const newId = `MT1_MANUAL_${Date.now()}`;
-                setCustomers(prev => [{
-                    ...newCustomer, id: newId, subGroup: 1, location: null, 
-                    monthlySales: {1:0,2:0,3:0,4:0,5:0,6:0,7:0,8:0,9:0,10:0,11:0,12:0}
-                }, ...prev]);
-                setNewCustomer({ name: '', phone: '', xa: '', huyen: '', type: 'DUY_TRI' });
-                setShowAddForm(false);
-                setFullMonthSchedule(null);
-                setStatus({ type: 'success', text: 'Thêm khách hàng thành công.' });
+                if(!newCustomer.name) return setStatus({ type: 'error', text: 'Vui lòng nhập tên khách hàng.' });
+                setCustomers(prev => [{ ...newCustomer, id: `MT1_MANUAL_${Date.now()}`, subGroup: 1, location: null, monthlySales: {1:0,2:0,3:0,4:0,5:0,6:0,7:0,8:0,9:0,10:0,11:0,12:0} }, ...prev]);
+                setNewCustomer({ name: '', phone: '', xa: '', huyen: '', type: 'DUY_TRI' }); setShowAddForm(false); setFullMonthSchedule(null); setStatus({ type: 'success', text: 'Thêm khách hàng thành công.' });
             };
 
-            const handleDeleteCustomer = (id) => {
-                if(window.confirm("Bạn có chắc chắn muốn xóa khách hàng này?")) {
-                    setCustomers(prev => prev.filter(c => c.id !== id));
-                    setFullMonthSchedule(null);
+            // Hàm thực thi Xóa KH sau khi ấn xác nhận trên Modal
+            const confirmDeleteCustomer = () => { 
+                if(customerToDelete) {
+                    setCustomers(prev => prev.filter(c => c.id !== customerToDelete.id)); 
+                    setFullMonthSchedule(null); 
+                    setCustomerToDelete(null); // Đóng Modal
                 }
             };
 
-            const toggleType = (id) => {
-                setCustomers(prev => prev.map(c => c.id === id ? { ...c, type: c.type === 'TRONG_DIEM' ? 'DUY_TRI' : 'TRONG_DIEM' } : c));
-                setFullMonthSchedule(null);
-            };
-
-            const handleMonthlySalesChange = (id, month, val) => {
-                setCustomers(prev => prev.map(c => {
-                    if(c.id === id) {
-                        const updated = {...c.monthlySales};
-                        updated[month] = val;
-                        return { ...c, monthlySales: updated };
-                    }
-                    return c;
-                }));
-            };
+            const toggleType = (id) => { setCustomers(prev => prev.map(c => c.id === id ? { ...c, type: c.type === 'TRONG_DIEM' ? 'DUY_TRI' : 'TRONG_DIEM' } : c)); setFullMonthSchedule(null); };
+            const handleMonthlySalesChange = (id, month, val) => { setCustomers(prev => prev.map(c => c.id === id ? { ...c, monthlySales: {...c.monthlySales, [month]: val} } : c)); };
 
             const handleSetHomeLocation = () => {
                 if (!navigator.geolocation) return setStatus({ type: 'error', text: 'Trình duyệt không hỗ trợ định vị.' });
                 setStatus({ type: 'loading', text: 'Đang lấy tọa độ...' });
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => { setHomeLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setStatus({ type: 'success', text: 'Đã lưu Vị trí!' }); },
-                    (err) => setStatus({ type: 'error', text: 'Vui lòng cấp quyền Vị Trí.' }), { enableHighAccuracy: true }
-                );
+                navigator.geolocation.getCurrentPosition( (pos) => { setHomeLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setStatus({ type: 'success', text: 'Đã lưu Vị trí!' }); }, () => setStatus({ type: 'error', text: 'Vui lòng cấp quyền Vị Trí.' }), { enableHighAccuracy: true } );
             };
 
             const handleSetCustomerLocation = (id) => {
                 if (!navigator.geolocation) return setStatus({ type: 'error', text: 'Trình duyệt không hỗ trợ định vị.' });
                 setStatus({ type: 'loading', text: 'Đang lấy tọa độ...' });
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => { setCustomers(prev => prev.map(c => c.id === id ? { ...c, location: { lat: pos.coords.latitude, lng: pos.coords.longitude } } : c)); setStatus({ type: 'success', text: 'Đã lưu tọa độ!' }); },
-                    (err) => setStatus({ type: 'error', text: 'Vui lòng cấp quyền Vị Trí.' }), { enableHighAccuracy: true }
-                );
+                navigator.geolocation.getCurrentPosition( (pos) => { setCustomers(prev => prev.map(c => c.id === id ? { ...c, location: { lat: pos.coords.latitude, lng: pos.coords.longitude } } : c)); setStatus({ type: 'success', text: 'Đã lưu tọa độ!' }); }, () => setStatus({ type: 'error', text: 'Vui lòng cấp quyền Vị Trí.' }), { enableHighAccuracy: true } );
             };
 
             const handleRemoveCustomerLocation = (id) => setCustomers(prev => prev.map(c => c.id === id ? { ...c, location: null } : c));
@@ -277,23 +216,17 @@
 
             const handleSalesChange = useCallback((week, day, customerId, salesValue) => {
                 setFullMonthSchedule(prev => {
-                    const updatedWeekDayItems = prev[week][day].items.map(item => 
-                        item.id === customerId ? { ...item, sales: salesValue } : item
-                    );
+                    const updatedWeekDayItems = prev[week][day].items.map(item => item.id === customerId ? { ...item, sales: salesValue } : item);
                     return { ...prev, [week]: { ...prev[week], [day]: { ...prev[week][day], items: updatedWeekDayItems } } };
                 });
             }, []);
 
             const handleOptimizeRoute = (week, day) => {
                 if (!homeLocation) return setStatus({ type: 'error', text: 'Vui lòng thiết lập Vị trí Nhà trước.' });
-                const newSchedule = { ...fullMonthSchedule };
-                const dayItems = [...newSchedule[week][day].items];
-                if (dayItems.length <= 1) return;
-
+                const newSchedule = { ...fullMonthSchedule }; const dayItems = [...newSchedule[week][day].items]; if (dayItems.length <= 1) return;
                 setStatus({ type: 'loading', text: 'Đang tối ưu lộ trình...' });
                 setTimeout(() => {
-                    let currentLoc = homeLocation;
-                    const optimized = []; const unlocated = []; 
+                    let currentLoc = homeLocation; const optimized = []; const unlocated = []; 
                     dayItems.forEach(item => { const loc = getCustomerLocation(item.id); if (loc) optimized.push({ ...item, _loc: loc }); else unlocated.push(item); });
                     const finalOptimized = [];
                     while (optimized.length > 0) {
@@ -308,16 +241,8 @@
 
             const buildSingleWeek = (isOddWeek) => {
                 const activeSubGroup = isOddWeek ? 1 : 2;
-                const activeCustomers = customers.filter(c => c.type === 'TRONG_DIEM' || c.subGroup === activeSubGroup).map(c => ({...c, sales: ''}));
+                let activeCustomersPool = customers.filter(c => c.type === 'TRONG_DIEM' || c.subGroup === activeSubGroup).map(c => ({...c, sales: ''}));
                 const normalize = (str) => str ? str.toLowerCase().replace(/[àáạảãâầấậẩẫăằắặẳẵ]/g,"a").replace(/[èéẹẻẽêềếệểễ]/g,"e").replace(/[ìíịỉĩ]/g,"i").replace(/[òóọỏõôồốộổỗơờớợởỡ]/g,"o").replace(/[ùúụủũưừứựửữ]/g,"u").replace(/[ỳýỵỷỹ]/g,"y").replace(/đ/g,"d").trim() : "";
-                
-                const grouped = { 'Cái Bè': [], 'Cai Lậy': [], 'Tân Phước': [], 'Châu Thành': [], 'Mỹ Tho': [], 'Khác': [] };
-                activeCustomers.forEach(c => {
-                    const h = normalize(c.huyen);
-                    if (h.includes('be')) grouped['Cái Bè'].push(c); else if (h.includes('lay')) grouped['Cai Lậy'].push(c); else if (h.includes('phuoc')) grouped['Tân Phước'].push(c); else if (h.includes('chau') || h.includes('thanh')) grouped['Châu Thành'].push(c); else if (h.includes('tho')) grouped['Mỹ Tho'].push(c); else grouped['Khác'].push(c);
-                });
-                
-                const pull = (arr, count) => arr.splice(0, count);
                 
                 const weekSchedule = {
                     T2: { day: 'Thứ 2', desc: 'Triển khai tuyến Cai Lậy / Tân Phước', limit: 12, items: [] },
@@ -325,50 +250,39 @@
                     T4: { day: 'Thứ 4', desc: 'Triển khai Châu Thành / Mỹ Tho', limit: 12, items: [] },
                     T5: { day: 'Thứ 5', desc: 'Triển khai tuyến Cai Lậy / Tân Phước', limit: 12, items: [] },
                     T6: { day: 'Thứ 6', desc: 'Trọng điểm Cái Bè (Thúc đẩy doanh số)', limit: 12, items: [] },
-                    T7: { day: 'Thứ 7', desc: 'Bảo trì tuyến Mỹ Tho / Châu Thành', limit: 10, items: [] },
+                    T7: { day: 'Thứ 7', desc: 'Bảo trì tuyến Mỹ Tho / Châu Thành', limit: 12, items: [] },
                 };
-
-                weekSchedule.T3.items.push(...pull(grouped['Cái Bè'], 11)); if(weekSchedule.T3.items.length < 10) weekSchedule.T3.items.push(...pull(grouped['Cai Lậy'], 10 - weekSchedule.T3.items.length));
-                weekSchedule.T6.items.push(...pull(grouped['Cái Bè'], 11)); if(weekSchedule.T6.items.length < 10) weekSchedule.T6.items.push(...pull(grouped['Cai Lậy'], 10 - weekSchedule.T6.items.length));
-                weekSchedule.T2.items.push(...pull(grouped['Cai Lậy'], 7)); weekSchedule.T2.items.push(...pull(grouped['Tân Phước'], 4));
-                weekSchedule.T5.items.push(...pull(grouped['Cai Lậy'], 7)); weekSchedule.T5.items.push(...pull(grouped['Tân Phước'], 4));
-                weekSchedule.T4.items.push(...pull(grouped['Châu Thành'], 7)); weekSchedule.T4.items.push(...pull(grouped['Mỹ Tho'], 4));
-                weekSchedule.T7.items.push(...pull(grouped['Mỹ Tho'], 6)); weekSchedule.T7.items.push(...pull(grouped['Châu Thành'], 4));
 
                 const dayDistrictMap = {
-                    'T2': ['cai lay', 'tan phuoc'],
-                    'T3': ['cai be', 'cai lay'],
-                    'T4': ['chau thanh', 'my tho'],
-                    'T5': ['cai lay', 'tan phuoc'],
-                    'T6': ['cai be', 'cai lay'],
-                    'T7': ['my tho', 'chau thanh']
+                    'T2': ['cai lay', 'tan phuoc'], 'T3': ['cai be', 'cai lay'], 'T4': ['chau thanh', 'my tho'],
+                    'T5': ['cai lay', 'tan phuoc'], 'T6': ['cai be', 'cai lay'], 'T7': ['my tho', 'chau thanh']
+                };
+                const daysKeys = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+
+                const pullCustomersForDay = (targetDistricts, maxToPull) => {
+                    let pulled = [];
+                    for (let i = activeCustomersPool.length - 1; i >= 0; i--) {
+                        const c = activeCustomersPool[i]; const h = normalize(c.huyen) || 'khac';
+                        if (targetDistricts.some(dist => h.includes(dist))) {
+                            pulled.push(c); activeCustomersPool.splice(i, 1);
+                            if (pulled.length >= maxToPull) break;
+                        }
+                    }
+                    return pulled;
                 };
 
-                const leftovers = [...grouped['Mỹ Tho'], ...grouped['Châu Thành'], ...grouped['Tân Phước'], ...grouped['Cai Lậy'], ...grouped['Cái Bè'], ...grouped['Khác']];
-                const daysKeys = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
-                
-                leftovers.forEach(c => {
-                    let placed = false;
-                    const h = normalize(c.huyen);
-
-                    for (let d of daysKeys) {
-                        const targetDistricts = dayDistrictMap[d];
-                        const isMatch = targetDistricts.some(dist => h.includes(dist));
-                        if (isMatch && weekSchedule[d].items.length < (weekSchedule[d].limit + 2)) {
-                            weekSchedule[d].items.push(c);
-                            placed = true;
-                            break;
-                        }
-                    }
-
-                    if (!placed) {
-                        let minDay = daysKeys[0]; 
-                        for (let d of daysKeys) {
-                            if (weekSchedule[d].items.length < weekSchedule[minDay].items.length) minDay = d;
-                        }
-                        weekSchedule[minDay].items.push(c);
-                    }
+                daysKeys.forEach(d => { weekSchedule[d].items.push(...pullCustomersForDay(dayDistrictMap[d], 8)); });
+                daysKeys.forEach(d => {
+                    const currentCount = weekSchedule[d].items.length;
+                    if (currentCount < 12) { weekSchedule[d].items.push(...pullCustomersForDay(dayDistrictMap[d], 12 - currentCount)); }
                 });
+
+                while (activeCustomersPool.length > 0) {
+                    const c = activeCustomersPool.shift();
+                    let minDay = daysKeys[0]; 
+                    for (let d of daysKeys) { if (weekSchedule[d].items.length < weekSchedule[minDay].items.length) { minDay = d; } }
+                    weekSchedule[minDay].items.push(c);
+                }
 
                 return weekSchedule;
             };
@@ -383,11 +297,7 @@
             };
 
             const getSalesData = () => {
-                let currentMonthSales = 0;
-                let currentQuarterManualSales = 0;
-                let yearManualSales = 0;
-                let trongDiemSales = 0;
-
+                let currentMonthSales = 0; let currentQuarterManualSales = 0; let yearManualSales = 0; let trongDiemSales = 0;
                 const currentQuarter = Math.ceil(selectedMonth / 3);
                 const qMonths = [(currentQuarter-1)*3 + 1, (currentQuarter-1)*3 + 2, (currentQuarter-1)*3 + 3];
 
@@ -412,17 +322,12 @@
                         });
                     });
                 }
-
                 const totalQuarter = currentQuarterManualSales + currentMonthSales;
                 const totalYear = yearManualSales + currentMonthSales;
-
                 return { currentMonthSales, totalQuarter, totalYear, trongDiemSales };
             };
             const salesStats = getSalesData();
 
-            // =========================================================================
-            // CORE EXCEL EXPORT - NÂNG CẤP BẤT TỬ CÔNG THỨC & CẤU TRÚC TAB
-            // =========================================================================
             const exportToExcelReal = async () => {
                 if (!fullMonthSchedule || !window.ExcelJS) return setStatus({ type: 'error', text: 'Lỗi thư viện xuất Excel.' });
                 setStatus({ type: 'loading', text: 'Đang kết xuất báo cáo...' });
@@ -430,103 +335,50 @@
                 try {
                     const wb = new window.ExcelJS.Workbook();
                     wb.creator = 'MPE Routing System';
-
                     const currentQuarterCol = Math.ceil(selectedMonth / 3);
                     
-                    // ==========================================
-                    // TAB 1: DOANH SỐ SALE OUT
-                    // ==========================================
+                    // SHEET 1: DOANH SỐ SALE OUT
                     const wsForm = wb.addWorksheet('DOANH SỐ SALE OUT', { views: [{ state: 'frozen', ySplit: 8 }] });
-                    
-                    const columns = [
-                        { width: 5 }, { width: 35 }, { width: 15 }, { width: 20 }, { width: 15 }, { width: 15 }, { width: 20 }
-                    ];
-                    for(let i=1; i<=17; i++) columns.push({ width: 13 }); 
-                    columns.push({ width: 15 }); 
-                    for(let i=1; i<=31; i++) columns.push({ width: 10 }); 
+                    const columns = [{ width: 5 }, { width: 35 }, { width: 15 }, { width: 20 }, { width: 15 }, { width: 15 }, { width: 20 }];
+                    for(let i=1; i<=17; i++) columns.push({ width: 13 }); columns.push({ width: 15 }); for(let i=1; i<=31; i++) columns.push({ width: 10 }); 
                     wsForm.columns = columns;
 
-                    // Tiêu đề vẫn giữ Năm theo ý người dùng
                     wsForm.mergeCells('D2:K2'); wsForm.getCell('D2').value = `BẢNG THEO DÕI DOANH SỐ KHÁCH HÀNG NĂM ${selectedYear}`; wsForm.getCell('D2').font = { bold: true, size: 14 };
                     wsForm.mergeCells('D3:F3'); wsForm.getCell('D3').value = 'NVKD : .....................';
-                    
-                    // Chỉ tiêu chuyển sang QUÝ
-                    wsForm.mergeCells('D4:F4'); wsForm.getCell('D4').value = `CHỈ TIÊU QUÝ ${currentQuarterCol}`; 
-                    wsForm.getCell('G4').value = Number(targetQuarter); wsForm.getCell('G4').numFmt = '#,##0';
-                    wsForm.mergeCells('D5:F5'); wsForm.getCell('D5').value = 'THỰC HIỆN:'; 
-                    wsForm.mergeCells('D6:F6'); wsForm.getCell('D6').value = 'TỈ LỆ % :'; 
-                    wsForm.getCell('G6').value = { formula: 'G5/G4' }; wsForm.getCell('G6').numFmt = '0.00%';
+                    wsForm.mergeCells('D4:F4'); wsForm.getCell('D4').value = `CHỈ TIÊU QUÝ ${currentQuarterCol}`; wsForm.getCell('G4').value = Number(targetQuarter); wsForm.getCell('G4').numFmt = '#,##0';
+                    wsForm.mergeCells('D5:F5'); wsForm.getCell('D5').value = 'THỰC HIỆN:'; wsForm.mergeCells('D6:F6'); wsForm.getCell('D6').value = 'TỈ LỆ % :'; wsForm.getCell('G6').value = { formula: 'G5/G4' }; wsForm.getCell('G6').numFmt = '0.00%';
 
                     const headerRow = wsForm.getRow(8);
-                    const headerValues = [
-                        'STT', 'TÊN KHÁCH HÀNG', 'SĐT', 'XÃ', 'HUYỆN', 'TỈNH', 'TÊN NPP', 
-                        'Tháng 1', 'Tháng 2', 'Tháng 3', 'QUÝ 1', 
-                        'Tháng 4', 'Tháng 5', 'Tháng 6', 'QUÝ 2', 
-                        'Tháng 7', 'Tháng 8', 'Tháng 9', 'QUÝ 3', 
-                        'Tháng 10', 'Tháng 11', 'Tháng 12', 'QUÝ 4', 'TỔNG NĂM',
-                        `DS TỔNG THÁNG ${selectedMonth}`
-                    ];
+                    const headerValues = ['STT', 'TÊN KHÁCH HÀNG', 'SĐT', 'XÃ', 'HUYỆN', 'TỈNH', 'TÊN NPP', 'Tháng 1', 'Tháng 2', 'Tháng 3', 'QUÝ 1', 'Tháng 4', 'Tháng 5', 'Tháng 6', 'QUÝ 2', 'Tháng 7', 'Tháng 8', 'Tháng 9', 'QUÝ 3', 'Tháng 10', 'Tháng 11', 'Tháng 12', 'QUÝ 4', 'TỔNG NĂM', `DS TỔNG THÁNG ${selectedMonth}`];
                     for(let i=1; i<=31; i++) headerValues.push(`Ngày ${i}`);
                     headerRow.values = headerValues;
-                    
-                    headerRow.eachCell((cell) => {
-                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0047AB' } };
-                        cell.font = { color: { argb: 'FFFFFFFF' }, bold: true };
-                        cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
-                        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-                    });
+                    headerRow.eachCell((cell) => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0047AB' } }; cell.font = { color: { argb: 'FFFFFFFF' }, bold: true }; cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; });
 
                     const monthColMap = { 1:8, 2:9, 3:10, 4:12, 5:13, 6:14, 7:16, 8:17, 9:18, 10:20, 11:21, 12:22 };
-
-                    const salesMap = {};
-                    customers.forEach(c => salesMap[c.id] = { c, days: Array(31).fill(0) });
+                    const salesMap = {}; customers.forEach(c => salesMap[c.id] = { c, days: Array(31).fill(0) });
 
                     let dayCounter = 0; 
-                    [1, 2, 3, 4].forEach(week => {
-                        ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'].forEach(dayKey => {
-                            if (fullMonthSchedule[week][dayKey]) {
-                                fullMonthSchedule[week][dayKey].items.forEach(item => {
-                                    if (item.sales && !isNaN(item.sales)) salesMap[item.id].days[dayCounter] += Number(item.sales);
-                                });
-                                dayCounter++;
-                            }
-                        });
-                    });
+                    [1, 2, 3, 4].forEach(week => { ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'].forEach(dayKey => { if (fullMonthSchedule[week][dayKey]) { fullMonthSchedule[week][dayKey].items.forEach(item => { if (item.sales && !isNaN(item.sales)) salesMap[item.id].days[dayCounter] += Number(item.sales); }); dayCounter++; } }); });
 
                     let rowIndex = 9;
                     customers.forEach((c, idx) => {
                         const r = wsForm.getRow(rowIndex);
-                        r.getCell(1).value = idx + 1; r.getCell(2).value = c.name; r.getCell(3).value = c.phone;
-                        r.getCell(4).value = c.xa; r.getCell(5).value = c.huyen; r.getCell(6).value = 'TIỀN GIANG'; r.getCell(7).value = 'LÊ NGUYỄN';
+                        r.getCell(1).value = idx + 1; r.getCell(2).value = c.name; r.getCell(3).value = c.phone; r.getCell(4).value = c.xa; r.getCell(5).value = c.huyen; r.getCell(6).value = 'TIỀN GIANG'; r.getCell(7).value = 'LÊ NGUYỄN';
                         
                         for (let m = 1; m <= 12; m++) {
                             const targetCol = monthColMap[m];
-                            if (m === selectedMonth) {
-                                r.getCell(targetCol).value = { formula: `Y${rowIndex}` }; 
-                                r.getCell(targetCol).font = { bold: true };
-                            } else {
-                                const val = Number(c.monthlySales?.[m]) || 0;
-                                if (val > 0) r.getCell(targetCol).value = val;
-                            }
+                            if (m === selectedMonth) { r.getCell(targetCol).value = { formula: `Y${rowIndex}` }; r.getCell(targetCol).font = { bold: true }; } 
+                            else { const val = Number(c.monthlySales?.[m]) || 0; if (val > 0) r.getCell(targetCol).value = val; }
                             r.getCell(targetCol).numFmt = '#,##0';
                         }
-
                         r.getCell(11).value = { formula: `SUM(H${rowIndex}:J${rowIndex})` }; r.getCell(11).font = { bold: true }; r.getCell(11).numFmt = '#,##0';
                         r.getCell(15).value = { formula: `SUM(L${rowIndex}:N${rowIndex})` }; r.getCell(15).font = { bold: true }; r.getCell(15).numFmt = '#,##0';
                         r.getCell(19).value = { formula: `SUM(P${rowIndex}:R${rowIndex})` }; r.getCell(19).font = { bold: true }; r.getCell(19).numFmt = '#,##0';
                         r.getCell(23).value = { formula: `SUM(T${rowIndex}:V${rowIndex})` }; r.getCell(23).font = { bold: true }; r.getCell(23).numFmt = '#,##0';
                         r.getCell(24).value = { formula: `K${rowIndex}+O${rowIndex}+S${rowIndex}+W${rowIndex}` }; r.getCell(24).font = { bold: true, color: { argb: 'FFFF0000' } }; r.getCell(24).numFmt = '#,##0';
+                        r.getCell(25).value = { formula: `SUM(Z${rowIndex}:BD${rowIndex})` }; r.getCell(25).font = { bold: true, color: { argb: 'FF0047AB' } }; r.getCell(25).numFmt = '#,##0';
 
-                        r.getCell(25).value = { formula: `SUM(Z${rowIndex}:BD${rowIndex})` };
-                        r.getCell(25).font = { bold: true, color: { argb: 'FF0047AB' } }; r.getCell(25).numFmt = '#,##0';
-
-                        const daysArray = salesMap[c.id].days;
-                        daysArray.forEach((val, dayIdx) => {
-                            if (val > 0) {
-                                r.getCell(26 + dayIdx).value = val; r.getCell(26 + dayIdx).numFmt = '#,##0';
-                            }
-                        });
-
+                        salesMap[c.id].days.forEach((val, dayIdx) => { if (val > 0) { r.getCell(26 + dayIdx).value = val; r.getCell(26 + dayIdx).numFmt = '#,##0'; } });
                         r.eachCell({ includeEmpty: true }, (cell, colNum) => { if(colNum <= 56) cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }});
                         rowIndex++;
                     });
@@ -537,111 +389,71 @@
                     
                     for(let col = 8; col <= 56; col++) {
                         const colLetter = wsForm.getColumn(col).letter;
-                        if (endDataRow >= 9) {
-                            totalRow.getCell(col).value = { formula: `SUM(${colLetter}9:${colLetter}${endDataRow})` };
-                        } else {
-                            totalRow.getCell(col).value = 0; 
-                        }
+                        if (endDataRow >= 9) totalRow.getCell(col).value = { formula: `SUM(${colLetter}9:${colLetter}${endDataRow})` }; else totalRow.getCell(col).value = 0; 
                         totalRow.getCell(col).numFmt = '#,##0'; totalRow.getCell(col).font = { bold: true, color: { argb: 'FFFF0000' } };
                     }
-                    totalRow.eachCell({ includeEmpty: true }, (c, colNum) => { 
-                        if(colNum <= 56) { c.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } }; }
-                    });
+                    totalRow.eachCell({ includeEmpty: true }, (c, colNum) => { if(colNum <= 56) { c.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } }; } });
 
-                    // LINK CÔNG THỨC THỰC HIỆN ĐÚNG CỘT QUÝ HIỆN TẠI (K, O, S, W)
                     const qColMapObj = { 1: 'K', 2: 'O', 3: 'S', 4: 'W' };
-                    const qTargetLetter = qColMapObj[currentQuarterCol];
-                    
-                    if (endDataRow >= 9) {
-                        wsForm.getCell('G5').value = { formula: `${qTargetLetter}${endDataRow + 1}` };
-                    } else {
-                        wsForm.getCell('G5').value = 0;
-                    }
+                    if (endDataRow >= 9) wsForm.getCell('G5').value = { formula: `${qColMapObj[currentQuarterCol]}${endDataRow + 1}` }; else wsForm.getCell('G5').value = 0;
                     wsForm.getCell('G5').numFmt = '#,##0'; wsForm.getCell('G5').font = { bold: true, color: { argb: 'FFFF0000' }};
 
-                    // ẨN CỘT LINH HOẠT VÀ ẨN LUÔN CỘT "TỔNG NĂM" (Cột 24)
                     const qCols = { 1: [8, 9, 10, 11], 2: [12, 13, 14, 15], 3: [16, 17, 18, 19], 4: [20, 21, 22, 23] };
-                    const colsToShow = qCols[currentQuarterCol];
-                    for (let c = 8; c <= 24; c++) {
-                        if (!colsToShow.includes(c) || c === 24) { 
-                            wsForm.getColumn(c).hidden = true;
-                        }
-                    }
+                    for (let c = 8; c <= 24; c++) if (!qCols[currentQuarterCol].includes(c) || c === 24) wsForm.getColumn(c).hidden = true;
 
-                    // ==========================================
-                    // TAB 2 (NEW): LỊCH ĐI TUYẾN THÁNG (NẰM KẾ BÊN SELL OUT)
-                    // ==========================================
-                    const wsSchedule = wb.addWorksheet(`LỊCH TUYẾN T${selectedMonth}`, { views: [{ state: 'frozen', ySplit: 2 }] });
+                    // SHEET 2: LỊCH ĐI TUYẾN
+                    const wsSchedule = wb.addWorksheet(`LỊCH TUYẾN T${selectedMonth}`);
                     wsSchedule.columns = [
-                        { header: 'TUẦN', key: 'week', width: 10 }, { header: 'NGÀY', key: 'day', width: 12 }, 
-                        { header: 'MỤC TIÊU TUYẾN', key: 'target', width: 35 }, { header: 'TÊN KHÁCH HÀNG', key: 'name', width: 35 },
-                        { header: 'ĐIỆN THOẠI', key: 'phone', width: 15 }, { header: 'ĐỊA CHỈ', key: 'address', width: 35 }, 
-                        { header: 'PHÂN LOẠI', key: 'type', width: 15 }, { header: 'DOANH SỐ', key: 'sales', width: 20 }
+                        { header: 'STT', key: 'stt', width: 6 }, { header: 'TÊN KHÁCH HÀNG', key: 'name', width: 35 },
+                        { header: 'ĐIỆN THOẠI', key: 'phone', width: 15 }, { header: 'ĐỊA CHỈ (XÃ, HUYỆN)', key: 'address', width: 35 }, 
+                        { header: 'PHÂN LOẠI', key: 'type', width: 15 }, { header: 'DOANH SỐ (VNĐ)', key: 'sales', width: 20 }, { header: 'GHI CHÚ / KÝ NHẬN', key: 'note', width: 25 }
                     ];
 
-                    wsSchedule.mergeCells('A1:H1'); 
-                    wsSchedule.getCell('A1').value = `LỊCH ĐI TUYẾN CHI TIẾT - THÁNG ${selectedMonth} NĂM ${selectedYear}`;
+                    wsSchedule.mergeCells('A1:G1'); 
+                    wsSchedule.getCell('A1').value = `BẢNG KÊ LỊCH CÔNG TÁC TUYẾN - THÁNG ${selectedMonth} NĂM ${selectedYear}`;
                     wsSchedule.getCell('A1').font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
                     wsSchedule.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0047AB' } };
-                    wsSchedule.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' };
+                    wsSchedule.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' }; wsSchedule.getRow(1).height = 25;
 
                     const schedHeaderRow = wsSchedule.getRow(2);
-                    schedHeaderRow.values = ['TUẦN', 'NGÀY', 'MỤC TIÊU TUYẾN', 'TÊN KHÁCH HÀNG', 'ĐIỆN THOẠI', 'ĐỊA CHỈ (XÃ, HUYỆN)', 'PHÂN LOẠI', 'DOANH SỐ (VNĐ)'];
-                    schedHeaderRow.eachCell((cell) => {
-                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE36C09' } }; 
-                        cell.font = { color: { argb: 'FFFFFFFF' }, bold: true };
-                        cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; 
-                        cell.alignment = { horizontal: 'center', vertical: 'middle' };
-                    });
+                    schedHeaderRow.values = ['STT', 'TÊN KHÁCH HÀNG', 'ĐIỆN THOẠI', 'ĐỊA CHỈ (XÃ, HUYỆN)', 'PHÂN LOẠI', 'DOANH SỐ (VNĐ)', 'GHI CHÚ / KÝ NHẬN'];
+                    schedHeaderRow.eachCell((cell) => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE36C09' } }; cell.font = { color: { argb: 'FFFFFFFF' }, bold: true }; cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; cell.alignment = { horizontal: 'center', vertical: 'middle' }; });
 
                     let schedRowIdx = 3;
+                    
                     [1, 2, 3, 4].forEach(weekNum => {
                         Object.keys(fullMonthSchedule[weekNum]).forEach(dayKey => {
                             const dayData = fullMonthSchedule[weekNum][dayKey];
+                            const dayHeaderRow = wsSchedule.addRow([`[TUẦN ${weekNum}] NGÀY: ${dayData.day.toUpperCase()} - MỤC TIÊU: ${dayData.desc}`]);
+                            wsSchedule.mergeCells(`A${schedRowIdx}:G${schedRowIdx}`);
+                            dayHeaderRow.getCell(1).font = { bold: true, color: { argb: 'FF0047AB' } }; dayHeaderRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } }; dayHeaderRow.getCell(1).border = { top: {style:'medium'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; dayHeaderRow.getCell(1).alignment = { vertical: 'middle' }; wsSchedule.getRow(schedRowIdx).height = 22; schedRowIdx++;
+
+                            let sttCounter = 1;
                             dayData.items.forEach(c => {
-                                const row = wsSchedule.addRow({
-                                    week: `Tuần ${weekNum}`, day: dayData.day, target: dayData.desc, 
-                                    name: c.name, phone: c.phone, address: `${c.xa}, ${c.huyen}`, type: c.type === 'TRONG_DIEM' ? 'Trọng Điểm' : 'Duy Trì', 
-                                    sales: c.sales && !isNaN(c.sales) ? Number(c.sales) : 0
-                                });
-                                row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-                                    cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
-                                    if (colNumber === 8) { cell.numFmt = '#,##0'; cell.font = { bold: true, color: { argb: 'FF008000' } }; }
-                                    if (colNumber <= 3) { cell.alignment = { vertical: 'top' }; }
-                                });
+                                const row = wsSchedule.addRow({ stt: sttCounter++, name: c.name, phone: c.phone, address: `${c.xa}, ${c.huyen}`, type: c.type === 'TRONG_DIEM' ? 'Trọng Điểm' : 'Duy Trì', sales: c.sales && !isNaN(c.sales) ? Number(c.sales) : 0, note: '' });
+                                row.eachCell({ includeEmpty: true }, (cell, colNumber) => { cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; if (colNumber === 6) { cell.numFmt = '#,##0'; cell.font = { bold: true, color: { argb: 'FF008000' } }; } if (colNumber === 1 || colNumber === 5) { cell.alignment = { horizontal: 'center' }; } });
                                 schedRowIdx++;
                             });
+
+                            while (sttCounter <= 8) {
+                                const emptyRow = wsSchedule.addRow({ stt: sttCounter++, name: '', phone: '', address: '', type: '', sales: '', note: '' });
+                                emptyRow.eachCell({ includeEmpty: true }, (cell) => { cell.border = { top: {style:'thin', color: {argb:'FFD3D3D3'}}, left: {style:'thin'}, bottom: {style:'thin', color: {argb:'FFD3D3D3'}}, right: {style:'thin'} }; if(cell.col === 1) cell.alignment = { horizontal: 'center' }; });
+                                schedRowIdx++;
+                            }
                         });
                     });
 
-                    // TỔNG CỘNG LỊCH TUYẾN LIÊN KẾT HÀM SUM
-                    const schedTotalRow = wsSchedule.addRow([]);
-                    schedTotalRow.getCell(4).value = 'TỔNG DOANH SỐ THÁNG TRÊN TUYẾN:'; 
-                    schedTotalRow.getCell(4).font = { bold: true, color: { argb: 'FFFF0000' } };
-                    schedTotalRow.getCell(4).alignment = { horizontal: 'right' };
-                    
-                    if (schedRowIdx > 3) {
-                        schedTotalRow.getCell(8).value = { formula: `SUM(H3:H${schedRowIdx - 1})` };
-                    } else {
-                        schedTotalRow.getCell(8).value = 0;
-                    }
-                    schedTotalRow.getCell(8).numFmt = '#,##0';
-                    schedTotalRow.getCell(8).font = { bold: true, color: { argb: 'FFFF0000' } };
-                    
-                    schedTotalRow.eachCell({ includeEmpty: true }, (c, colNum) => { 
-                        if(colNum >= 4 && colNum <= 8) { 
-                            c.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; 
-                            c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } }; 
-                        }
-                    });
+                    const schedTotalRow = wsSchedule.addRow([]); wsSchedule.mergeCells(`A${schedRowIdx}:E${schedRowIdx}`);
+                    schedTotalRow.getCell(1).value = 'TỔNG DOANH SỐ THU THẬP TRÊN TUYẾN THÁNG NÀY:'; schedTotalRow.getCell(1).font = { bold: true, color: { argb: 'FFFF0000' } }; schedTotalRow.getCell(1).alignment = { horizontal: 'right', vertical: 'middle' };
+                    if (schedRowIdx > 3) { schedTotalRow.getCell(6).value = { formula: `SUM(F3:F${schedRowIdx - 1})` }; } else { schedTotalRow.getCell(6).value = 0; }
+                    schedTotalRow.getCell(6).numFmt = '#,##0'; schedTotalRow.getCell(6).font = { bold: true, color: { argb: 'FFFF0000' } };
+                    schedTotalRow.eachCell({ includeEmpty: true }, (c, colNum) => { if(colNum <= 7) { c.border = { top: {style:'medium'}, left: {style:'thin'}, bottom: {style:'medium'}, right: {style:'thin'} }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } }; } });
+                    wsSchedule.getRow(schedRowIdx).height = 25;
 
-                    // ==========================================
-                    // TAB 3: BÁO CÁO TỔNG THỐNG KÊ
-                    // ==========================================
+                    // SHEET 3: BÁO CÁO TỔNG THỐNG KÊ
                     const wsSummary = wb.addWorksheet('BÁO CÁO TỔNG HỢP');
                     wsSummary.columns = [{ width: 35 }, { width: 25 }];
-                    wsSummary.addRow(['TỔNG HỢP THÔNG TIN MỤC TIÊU']);
-                    wsSummary.getRow(1).font = { bold: true, size: 14 }; wsSummary.addRow([]);
+                    wsSummary.addRow(['TỔNG HỢP THÔNG TIN MỤC TIÊU']); wsSummary.getRow(1).font = { bold: true, size: 14 }; wsSummary.addRow([]);
                     
                     wsSummary.addRow(['Doanh số KH Trọng Điểm:', salesStats.trongDiemSales]).getCell(2).numFmt = '#,##0';
                     wsSummary.addRow(['Tổng Doanh số Tháng:', salesStats.currentMonthSales]).getCell(2).numFmt = '#,##0';
@@ -652,46 +464,40 @@
                     wsSummary.addRow(['Chỉ tiêu Năm:', targetYear]).getCell(2).numFmt = '#,##0';
                     wsSummary.addRow(['Tiến độ Năm:', (salesStats.totalYear / targetYear) || 0]).getCell(2).numFmt = '0.00%';
                     
-                    wsSummary.eachRow((row, rowNumber) => {
-                        if (rowNumber > 2) {
-                            row.getCell(1).font = { bold: true };
-                            row.getCell(1).border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
-                            row.getCell(2).border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
-                            if (rowNumber === 7 || rowNumber === 10) { row.getCell(2).font = { bold: true, color: {argb: 'FF008000'} }; }
-                        }
-                    });
+                    wsSummary.eachRow((row, rowNumber) => { if (rowNumber > 2) { row.getCell(1).font = { bold: true }; row.getCell(1).border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; row.getCell(2).border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; if (rowNumber === 7 || rowNumber === 10) { row.getCell(2).font = { bold: true, color: {argb: 'FF008000'} }; } } });
 
-                    // XUẤT FILE
-                    const buffer = await wb.xlsx.writeBuffer();
-                    const fileName = `LichTuyen_BaoCao_Thang${selectedMonth}_${selectedYear}.xlsx`;
-                    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-                    const url = window.URL.createObjectURL(blob);
-                    const link = document.createElement('a'); link.href = url; link.download = fileName;
-                    document.body.appendChild(link); link.click(); document.body.removeChild(link); window.URL.revokeObjectURL(url);
+                    const buffer = await wb.xlsx.writeBuffer(); const fileName = `LichTuyen_BaoCao_Thang${selectedMonth}_${selectedYear}.xlsx`; const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                    const url = window.URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = fileName; document.body.appendChild(link); link.click(); document.body.removeChild(link); window.URL.revokeObjectURL(url);
                     setStatus({ type: 'success', text: 'Xuất file thành công.' });
-                } catch (err) {
-                    setStatus({ type: 'error', text: 'Lỗi xuất file: ' + err.message });
-                }
+                } catch (err) { setStatus({ type: 'error', text: 'Lỗi xuất file: ' + err.message }); }
             };
 
             const trongDiemCount = customers.filter(c => c.type === 'TRONG_DIEM').length;
             const geoStats = {}; customers.forEach(c => { const h = c.huyen || 'Khác'; geoStats[h] = (geoStats[h] || 0) + 1; });
             const geoArr = Object.entries(geoStats).sort((a,b) => b[1] - a[1]);
-
-            const filteredCustomers = customers.filter(c => 
-                c.name.toLowerCase().includes(searchTerm.toLowerCase()) || (c.phone && c.phone.includes(searchTerm)) || c.huyen.toLowerCase().includes(searchTerm.toLowerCase())
-            );
-
-            const getQuarterMonths = () => {
-                const q = Math.ceil(selectedMonth / 3);
-                return [(q-1)*3 + 1, (q-1)*3 + 2, (q-1)*3 + 3];
-            };
-            const currentQuarterMonths = getQuarterMonths();
+            const filteredCustomers = customers.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()) || (c.phone && c.phone.includes(searchTerm)) || c.huyen.toLowerCase().includes(searchTerm.toLowerCase()));
+            const currentQuarterMonths = (() => { const q = Math.ceil(selectedMonth / 3); return [(q-1)*3 + 1, (q-1)*3 + 2, (q-1)*3 + 3]; })();
 
             return (
                 <div className="min-h-screen bg-slate-100 p-2 md:p-6 font-sans text-slate-800">
+                    {/* MODAL XÓA KHÁCH HÀNG (Thay thế window.confirm) */}
+                    {customerToDelete && (
+                        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm transition-opacity">
+                            <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 animate-in zoom-in-95 duration-200">
+                                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
+                                    <i className="fa-solid fa-triangle-exclamation text-red-600 text-xl"></i>
+                                </div>
+                                <h3 className="text-xl font-black text-slate-800 text-center mb-2">Xác nhận xóa?</h3>
+                                <p className="text-slate-600 text-sm text-center mb-6">Bạn có chắc chắn muốn xóa khách hàng <strong className="text-red-600">{customerToDelete.name}</strong> khỏi hệ thống? (Thao tác này sẽ hủy lịch đi tuyến hiện tại).</p>
+                                <div className="flex gap-3">
+                                    <button onClick={() => setCustomerToDelete(null)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-lg transition">Hủy bỏ</button>
+                                    <button onClick={confirmDeleteCustomer} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 rounded-lg shadow-md shadow-red-200 transition">Xóa ngay</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="max-w-7xl mx-auto space-y-4">
-                        
                         <div className="bg-white rounded-xl shadow border border-slate-200 overflow-hidden">
                             <div className="p-4 flex flex-col md:flex-row justify-between items-center gap-4 border-b border-slate-100 relative">
                                 <div className="text-center md:text-left">
@@ -711,10 +517,8 @@
                                 <button onClick={() => setActiveTab('analysis')} disabled={customers.length === 0} className={`whitespace-nowrap px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'analysis' ? 'bg-blue-600 shadow text-white' : 'text-slate-600 hover:bg-slate-200'} disabled:opacity-40`}>3. Tổng Hợp</button>
                                 <button onClick={() => { if(!fullMonthSchedule) executeRoutingForMonth(); setActiveTab('schedule'); }} disabled={customers.length === 0} className={`whitespace-nowrap px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === 'schedule' ? 'bg-blue-600 shadow text-white' : 'text-slate-600 hover:bg-slate-200'} disabled:opacity-40`}>4. Lịch Chăm Sóc</button>
                             </div>
-                            
                             <div className={`px-4 py-2.5 text-[13px] font-bold flex items-center gap-2 ${status.type === 'error' ? 'bg-red-50 text-red-700' : status.type === 'loading' ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                                {status.type === 'error' ? <i className="fa-solid fa-circle-exclamation"></i> : status.type === 'loading' ? <i className="fa-solid fa-rotate animate-spin"></i> : <i className="fa-solid fa-circle-check"></i>}
-                                {status.text}
+                                {status.type === 'error' ? <i className="fa-solid fa-circle-exclamation"></i> : status.type === 'loading' ? <i className="fa-solid fa-rotate animate-spin"></i> : <i className="fa-solid fa-circle-check"></i>} {status.text}
                             </div>
                         </div>
 
@@ -731,7 +535,7 @@
                                     <div onClick={() => librariesReady && fileInputRef.current.click()} className={`max-w-xl mx-auto border-2 border-dashed rounded-2xl p-10 cursor-pointer transition-all ${librariesReady ? 'border-blue-400 bg-blue-50 hover:bg-blue-100' : 'border-slate-300 bg-slate-50 opacity-60'}`}>
                                         <i className="fa-solid fa-file-excel text-blue-600 text-[48px] mb-4"></i>
                                         <h2 className="text-xl font-black text-blue-900 mb-2">QUÉT CHỌN CÁC FILE .XLSX CẦN GỘP</h2>
-                                        <p className="text-blue-600/70 text-sm font-medium">Hệ thống tự động lọc bỏ các cột rác, chỉ giữ lại DS Khách hàng.</p>
+                                        <p className="text-blue-600/70 text-sm font-medium">Hệ thống sẽ tự động quét cả 2 cột biểu mẫu ngang trong file để gộp khách.</p>
                                     </div>
                                 )}
                                 <input type="file" accept=".xlsx, .xls" multiple ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
@@ -742,12 +546,8 @@
                             <div className="space-y-4 animate-in fade-in">
                                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
                                     <div className="flex flex-col md:flex-row gap-3 border-b border-slate-100 pb-4 mb-4">
-                                        <button onClick={() => setShowAddForm(!showAddForm)} className="flex-1 bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition">
-                                            <i className="fa-solid fa-user-plus"></i> 1. Thêm KH Thủ Công (Nhập Tay)
-                                        </button>
-                                        <button onClick={() => fileInputRef.current.click()} className="flex-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition">
-                                            <i className="fa-solid fa-file-excel"></i> 2. Thêm Hàng Loạt (Úp File Excel)
-                                        </button>
+                                        <button onClick={() => setShowAddForm(!showAddForm)} className="flex-1 bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition"><i className="fa-solid fa-user-plus"></i> 1. Thêm KH Thủ Công (Nhập Tay)</button>
+                                        <button onClick={() => fileInputRef.current.click()} className="flex-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition"><i className="fa-solid fa-file-excel"></i> 2. Thêm Hàng Loạt (Úp File Excel)</button>
                                         <input type="file" accept=".xlsx, .xls" multiple ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
                                     </div>
 
@@ -796,7 +596,7 @@
                                                     <button onClick={() => setExpandedCustomer(expandedCustomer === c.id ? null : c.id)} className="text-[11px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-2 py-1.5 rounded transition border border-indigo-100 flex items-center gap-1.5">
                                                         <i className="fa-solid fa-money-check-dollar"></i> Nhập DS Các Tháng
                                                     </button>
-                                                    <button onClick={() => handleDeleteCustomer(c.id)} className="w-8 h-8 flex items-center justify-center bg-red-50 hover:bg-red-100 text-red-500 border border-red-100 rounded-lg transition-colors" title="Xóa KH">
+                                                    <button onClick={() => setCustomerToDelete(c)} className="w-8 h-8 flex items-center justify-center bg-red-50 hover:bg-red-100 text-red-500 border border-red-100 rounded-lg transition-colors" title="Xóa KH">
                                                         <i className="fa-solid fa-trash-can"></i>
                                                     </button>
                                                 </div>
@@ -824,7 +624,6 @@
 
                         {activeTab === 'analysis' && customers.length > 0 && (
                             <div className="space-y-6 animate-in fade-in">
-                                
                                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
                                     <h3 className="font-bold text-slate-700 mb-4 text-lg">Tổng Hợp Doanh Số Tháng {selectedMonth}</h3>
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1035,4 +834,6 @@
     </script>
 </body>
 </html>
+
+
 
