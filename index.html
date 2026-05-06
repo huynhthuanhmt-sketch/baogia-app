@@ -175,7 +175,7 @@
 
                         const existingOld = oldCustomers.find(c => cleanName(c.name) === key);
                         let currentSales = existingOld && existingOld.monthlySales ? { ...existingOld.monthlySales } : {1:0,2:0,3:0,4:0,5:0,6:0,7:0,8:0,9:0,10:0,11:0,12:0};
-                        
+                        let currentDailySales = existingOld && existingOld.dailySales ? [...existingOld.dailySales] : Array(31).fill(0);
                         // [VÁ LỖI 1]: TẠO BỘ NHỚ LƯU MẢNG 31 NGÀY (Lấy từ cũ hoặc tạo mới)
                         let currentDailySales = existingOld && existingOld.dailySales ? [...existingOld.dailySales] : Array(31).fill(0);
 
@@ -194,24 +194,31 @@
                                 }
                             }
                             
-                            // 2. Hút số theo 31 Cột Ngày
-                            let dailySum = 0;
-                            let hasDailyData = false;
-                            let tempDaily = Array(31).fill(0); // [VÁ LỖI 2]: Khay chứa riêng 31 ngày cho file mới
-                            
-                            for (let d = 1; d <= 31; d++) {
-                                if (dayIndices[d] !== undefined) {
-                                    const rawVal = row[dayIndices[d]];
-                                    if (rawVal) {
-                                        const val = Number(String(rawVal).replace(/[^0-9.-]/g, ''));
-                                        if (!isNaN(val) && val > 0) {
-                                            dailySum += val;
-                                            tempDaily[d - 1] = val; // [VÁ LỖI 3]: Nhét từng ngày vào khay
-                                            hasDailyData = true;
-                                        }
-                                    }
-                                }
-                            }
+                            // 2. Hút số theo 31 Cột Ngày (Cộng dồn vào tháng hiện hành)
+let dailySum = 0;
+let hasDailyData = false;
+let tempDaily = Array(31).fill(0); // [CODE FIX]: Tạo khay 31 ngày
+
+for (let d = 1; d <= 31; d++) {
+    if (dayIndices[d] !== undefined) {
+        const rawVal = row[dayIndices[d]];
+        if (rawVal) {
+            const val = Number(String(rawVal).replace(/[^0-9.-]/g, ''));
+            if (!isNaN(val) && val > 0) {
+                dailySum += val;
+                tempDaily[d - 1] = val; // [CODE FIX]: Nhét từng ngày vào khay
+                hasDailyData = true;
+            }
+        }
+    }
+}
+
+// Nếu quét được các cột ngày và có doanh số...
+if (hasDailyData && dailySum > 0) {
+    currentSales[selectedMonth] = dailySum;
+    currentDailySales = tempDaily; // [CODE FIX]: Lưu trọn vẹn 31 ngày
+    hasRestoredSales = true;
+}
                             
                             // Ép vào bộ nhớ chính
                             if (hasDailyData && dailySum > 0) {
@@ -222,24 +229,24 @@
                         }
 
                         if (customerMap.has(key)) { 
-                            duplicates++; const existing = customerMap.get(key); 
-                            if (!existing.phone && phone) existing.phone = phone; if (existing.xa === 'CHƯA RÕ' && xa) existing.xa = xa; if (existing.huyen === 'CHƯA RÕ' && huyen) existing.huyen = huyen; 
-                            if (isExportFile && sttIdx === 0) {
-                                for (let m = 1; m <= 12; m++) { if (currentSales[m] > 0) existing.monthlySales[m] = currentSales[m]; }
-                                // Nếu có mảng ngày mới thì ghi đè vào khách trùng
-                                if (hasRestoredSales && currentDailySales.some(v => v > 0)) existing.dailySales = [...currentDailySales];
-                            }
-                        } else {
-                            customerMap.set(key, { 
-                                id: existingOld ? existingOld.id : `MT1_${Date.now()}_${idCounter++}`,
-                                name: String(name), phone: phone, xa: xa, huyen: huyen, 
-                                type: existingOld ? existingOld.type : 'DUY_TRI', subGroup: existingOld ? existingOld.subGroup : (idCounter % 2 === 0 ? 2 : 1), 
-                                location: existingOld ? existingOld.location : null, 
-                                monthlySales: currentSales,
-                                dailySales: currentDailySales // [VÁ LỖI 5]: Đẩy thẳng bộ nhớ ngày vào thông tin Khách
-                            });
-                        }
-                    };
+    duplicates++; const existing = customerMap.get(key); 
+    if (!existing.phone && phone) existing.phone = phone; if (existing.xa === 'CHƯA RÕ' && xa) existing.xa = xa; if (existing.huyen === 'CHƯA RÕ' && huyen) existing.huyen = huyen; 
+    if (isExportFile && sttIdx === 0) {
+        for (let m = 1; m <= 12; m++) { if (currentSales[m] > 0) existing.monthlySales[m] = currentSales[m]; }
+        // 👉 THÊM DÒNG NÀY ĐỂ GHI ĐÈ NGÀY CHO KHÁCH TRÙNG:
+        if (hasRestoredSales && currentDailySales.some(v => v > 0)) existing.dailySales = [...currentDailySales];
+    }
+} else {
+    customerMap.set(key, { 
+        id: existingOld ? existingOld.id : `MT1_${Date.now()}_${idCounter++}`,
+        name: String(name), phone: phone, xa: xa, huyen: huyen, 
+        type: existingOld ? existingOld.type : 'DUY_TRI', subGroup: existingOld ? existingOld.subGroup : (idCounter % 2 === 0 ? 2 : 1), 
+        location: existingOld ? existingOld.location : null, 
+        monthlySales: currentSales,
+        // 👉 THÊM DÒNG NÀY VÀO TRONG Object KHÁCH MỚI:
+        dailySales: currentDailySales 
+    });
+}
                     
                     if (isExportFile) {
                         processChunk(0, 1, 2, 3, 4); 
@@ -252,17 +259,16 @@
                 const finalParsed = Array.from(customerMap.values());
                 if (finalParsed.length === 0) return setStatus({ type: 'error', text: 'Không trích xuất được KH nào.' });
                 setCustomers([...oldCustomers.filter(oc => !finalParsed.find(fc => fc.id === oc.id)), ...finalParsed]); 
-
-                let successMsg = `Nạp thành công ${finalParsed.length} KH chuẩn.`;
+                      let successMsg = `Nạp thành công ${finalParsed.length} KH chuẩn.`;
                 if (hasRestoredSales) successMsg += " Đã khôi phục Doanh số Lịch sử (bao gồm DS 31 Ngày)!";
                 
                 setActiveTab('categorize'); setStatus({ type: 'success', text: successMsg }); setFullMonthSchedule(null);
             };
 
-            const handleAddCustomer = () => {
+            const exportToExcelReal = async () => { () => {
                 if(!newCustomer.name) return setStatus({ type: 'error', text: 'Vui lòng nhập tên khách hàng.' });
                 // [VÁ LỖI 6]: Khởi tạo mảng ngày trống khi tạo thủ công để chống lỗi sập
-                setCustomers(prev => [{ ...newCustomer, id: `MT1_MANUAL_${Date.now()}`, subGroup: 1, location: null, monthlySales: {1:0,2:0,3:0,4:0,5:0,6:0,7:0,8:0,9:0,10:0,11:0,12:0}, dailySales: Array(31).fill(0) }, ...prev]);
+               setCustomers(prev => [{ ...newCustomer, id: `MT1_MANUAL_${Date.now()}`, subGroup: 1, location: null, monthlySales: {1:0,2:0,3:0,4:0,5:0,6:0,7:0,8:0,9:0,10:0,11:0,12:0}, dailySales: Array(31).fill(0) }, ...prev]);
                 setNewCustomer({ name: '', phone: '', xa: '', huyen: '', type: 'DUY_TRI' }); setShowAddForm(false); setFullMonthSchedule(null); setStatus({ type: 'success', text: 'Thêm khách hàng thành công.' });
             };
 
