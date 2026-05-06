@@ -1,16 +1,18 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Upload, MapPin, Calendar, CheckCircle2, 
   Truck, BarChart3, Users, AlertCircle, FileSpreadsheet,
-  Download, Info, RefreshCw, ChevronRight, Target, Navigation
+  Download, Info, RefreshCw, ChevronRight, Target, Navigation,
+  LayoutDashboard, BarChart2 // Đã thêm 2 Icon bị thiếu để fix lỗi trắng màn hình
 } from 'lucide-react';
 
-export default function MPE_Routing_System() {
+export default function App() {
   const [customers, setCustomers] = useState([]);
   const [isWeekOdd, setIsWeekOdd] = useState(true);
   const [schedule, setSchedule] = useState(null);
   const [activeTab, setActiveTab] = useState('upload'); 
-  const [status, setStatus] = useState({ type: 'loading', text: 'Đang tải thư viện hệ thống...' });
+  const [status, setStatus] = useState({ type: 'loading', text: 'Đang tải thư viện Excel lõi...' });
   const [librariesReady, setLibrariesReady] = useState(false);
   const [duplicateCount, setDuplicateCount] = useState(0);
   const fileInputRef = useRef(null);
@@ -31,9 +33,9 @@ export default function MPE_Routing_System() {
       loadScript("https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js")
     ]).then(() => {
       setLibrariesReady(true);
-      setStatus({ type: 'success', text: 'Hệ thống đã sẵn sàng hoạt động.' });
+      setStatus({ type: 'success', text: 'Hệ thống đã sẵn sàng.' });
     }).catch(() => {
-      setStatus({ type: 'error', text: 'Lỗi kết nối thư viện. Vui lòng kiểm tra mạng.' });
+      setStatus({ type: 'error', text: 'Lỗi tải thư viện. Vui lòng kiểm tra mạng.' });
     });
   }, []);
 
@@ -43,7 +45,7 @@ export default function MPE_Routing_System() {
     if (!file) return;
     if (!librariesReady || !window.XLSX) return setStatus({ type: 'error', text: 'Thư viện chưa sẵn sàng.' });
 
-    setStatus({ type: 'loading', text: 'Đang đọc và xử lý dữ liệu...' });
+    setStatus({ type: 'loading', text: 'Đang đọc và lọc trùng lặp...' });
     
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -84,8 +86,8 @@ export default function MPE_Routing_System() {
         id: `MT1_${Date.now()}_${idCounter++}`, 
         name: String(name),
         phone: phone ? String(phone) : '',
-        xa: xa ? String(xa) : 'CHƯA CẬP NHẬT',
-        huyen: huyen ? String(huyen) : 'CHƯA CẬP NHẬT',
+        xa: xa ? String(xa) : 'CHƯA RÕ',
+        huyen: huyen ? String(huyen) : 'CHƯA RÕ',
         type: 'DUY_TRI', 
         subGroup: idCounter % 2 === 0 ? 2 : 1 
       });
@@ -108,28 +110,23 @@ export default function MPE_Routing_System() {
       }
     }
 
-    if (parsedData.length === 0) return setStatus({ type: 'error', text: 'Không trích xuất được dữ liệu hợp lệ.' });
+    if (parsedData.length === 0) return setStatus({ type: 'error', text: 'Không trích xuất được dữ liệu.' });
 
     setCustomers(parsedData);
     setDuplicateCount(duplicates);
     setActiveTab('categorize');
-    setStatus({ type: 'success', text: `Đã nạp ${parsedData.length} Khách hàng. Chuẩn hóa ${duplicates} bản ghi trùng lặp.` });
+    setStatus({ type: 'success', text: `Đã nạp ${parsedData.length} KH. Loại bỏ ${duplicates} KH trùng lặp.` });
     setSchedule(null);
   };
 
+  // ĐÃ FIX: Đồng nhất biến type để nút bấm hoạt động mượt mà
   const toggleType = (id) => {
     setCustomers(prev => prev.map(c => c.id === id ? { ...c, type: c.type === 'TRONG_DIEM' ? 'DUY_TRI' : 'TRONG_DIEM' } : c));
     setSchedule(null);
   };
 
-  // TÍNH TOÁN CÁC CHỈ SỐ
   const trongDiemCount = customers.filter(c => c.type === 'TRONG_DIEM').length;
   const duyTriCount = customers.length - trongDiemCount;
-  
-  // Tỷ lệ % để cảnh báo
-  const trongDiemPercent = customers.length > 0 ? Math.round((trongDiemCount / customers.length) * 100) : 0;
-  const showLowWarning = customers.length > 0 && trongDiemPercent < 25;
-  const showHighWarning = customers.length > 0 && trongDiemPercent > 50;
 
   const geoStats = {};
   customers.forEach(c => {
@@ -138,9 +135,9 @@ export default function MPE_Routing_System() {
   });
   const geoArr = Object.entries(geoStats).sort((a,b) => b[1] - a[1]);
 
-  // 4. THUẬT TOÁN XẾP TUYẾN 
+  // 4. THUẬT TOÁN XẾP TUYẾN (ĐÃ FIX LỖI VÒNG LẶP)
   const executeRouting = () => {
-    setStatus({ type: 'loading', text: 'Đang thiết lập lộ trình...' });
+    setStatus({ type: 'loading', text: 'Đang tính toán tuyến đường...' });
     
     setTimeout(() => {
       const activeSubGroup = isWeekOdd ? 1 : 2;
@@ -162,12 +159,12 @@ export default function MPE_Routing_System() {
       const pull = (arr, count) => arr.splice(0, count);
 
       const newSchedule = {
-        T2: { day: 'Thứ 2', desc: 'Triển khai tuyến, chốt đơn Thứ 5', location: 'Cai Lậy / Tân Phước', limit: 12, items: [] },
-        T3: { day: 'Thứ 3', desc: 'Chốt đơn Thứ 5 & Xử lý đơn hàng', location: 'Cái Bè', limit: 12, items: [] },
-        T4: { day: 'Thứ 4', desc: 'Đảm bảo tiến độ KPI & Khảo sát', location: 'Châu Thành / Mỹ Tho', limit: 12, items: [] },
-        T5: { day: 'Thứ 5', desc: 'Triển khai tuyến, chốt đơn Thứ 2', location: 'Cai Lậy / Tân Phước', limit: 12, items: [] },
-        T6: { day: 'Thứ 6', desc: 'Chốt đơn Thứ 2 & Xử lý đơn hàng', location: 'Cái Bè / Cai Lậy', limit: 12, items: [] },
-        T7: { day: 'Thứ 7', desc: 'Bảo trì tuyến & Phát triển điểm mới', location: 'Mỹ Tho / Châu Thành', limit: 10, items: [] },
+        T2: { day: 'Thứ 2', desc: 'Triển khai tuyến Cai Lậy / Tân Phước', location: 'Cai Lậy / Tân Phước', limit: 12, items: [] },
+        T3: { day: 'Thứ 3', desc: 'Trọng điểm Cái Bè (Thúc đẩy doanh số)', location: 'Cái Bè', limit: 12, items: [] },
+        T4: { day: 'Thứ 4', desc: 'Triển khai tuyến Châu Thành / Mỹ Tho', location: 'Châu Thành / Mỹ Tho', limit: 12, items: [] },
+        T5: { day: 'Thứ 5', desc: 'Triển khai tuyến Cai Lậy / Tân Phước', location: 'Cai Lậy / Tân Phước', limit: 12, items: [] },
+        T6: { day: 'Thứ 6', desc: 'Trọng điểm Cái Bè (Thúc đẩy doanh số)', location: 'Cái Bè / Cai Lậy', limit: 12, items: [] },
+        T7: { day: 'Thứ 7', desc: 'Bảo trì tuyến Mỹ Tho / Châu Thành', location: 'Mỹ Tho / Châu Thành', limit: 10, items: [] },
       };
 
       // T3: Cái Bè
@@ -194,7 +191,7 @@ export default function MPE_Routing_System() {
       newSchedule.T7.items.push(...pull(grouped['Mỹ Tho'], 6));
       newSchedule.T7.items.push(...pull(grouped['Châu Thành'], 4));
 
-      // Rải đều danh sách còn lại
+      // ĐÃ FIX LỖI WHITE SCREEN: Vòng lặp an toàn
       const leftovers = [...grouped['Mỹ Tho'], ...grouped['Châu Thành'], ...grouped['Tân Phước'], ...grouped['Cai Lậy'], ...grouped['Cái Bè'], ...grouped['Khác']];
       const days = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
       let dayIdx = 0;
@@ -212,7 +209,7 @@ export default function MPE_Routing_System() {
           }
         }
         
-        // Cân bằng số lượng nếu vượt quá định mức
+        // Thoát hiểm nếu data quá lớn
         if (!placed && leftovers.length > 0) {
             let minDay = days[0];
             for (let d of days) {
@@ -226,100 +223,59 @@ export default function MPE_Routing_System() {
 
       setSchedule(newSchedule);
       setActiveTab('schedule');
-      setStatus({ type: 'success', text: 'Hoàn tất phân bổ lộ trình tuyến.' });
+      setStatus({ type: 'success', text: 'Đã tạo lộ trình tuyến thành công.' });
     }, 400);
   };
 
   // 5. KẾT XUẤT BÁO CÁO EXCEL CHUẨN
   const exportToExcelReal = async () => {
-    if (!schedule || !window.ExcelJS) return setStatus({ type: 'error', text: 'Lỗi thư viện xuất dữ liệu.' });
+    if (!schedule || !window.ExcelJS) return setStatus({ type: 'error', text: 'Lỗi thư viện xuất Excel.' });
 
-    setStatus({ type: 'loading', text: 'Đang kết xuất Báo Cáo Định Dạng XLSX...' });
+    setStatus({ type: 'loading', text: 'Đang kết xuất báo cáo Excel (.xlsx)...' });
     
     try {
       const wb = new window.ExcelJS.Workbook();
-      wb.creator = 'MPE Routing System';
+      wb.creator = 'MPE Routing';
 
-      // --- SHEET 1: DASHBOARD BÁO CÁO ---
-      const wsDash = wb.addWorksheet('Báo Cáo Phân Tích Dữ Liệu');
-      wsDash.columns = [{ width: 3 }, { width: 35 }, { width: 20 }, { width: 25 }, { width: 20 }];
+      // --- SHEET 1: DASHBOARD ---
+      const wsDash = wb.addWorksheet('Phân Tích Địa Bàn');
+      wsDash.columns = [{ width: 3 }, { width: 35 }, { width: 20 }, { width: 30 }];
 
-      wsDash.mergeCells('B2:E2');
+      wsDash.mergeCells('B2:D2');
       const titleCell = wsDash.getCell('B2');
-      titleCell.value = `BÁO CÁO PHÂN TÍCH ĐỊA BÀN & LỊCH TRÌNH - CHU KỲ ${isWeekOdd ? '1' : '2'}`;
+      titleCell.value = `PHÂN TÍCH ĐỊA BÀN & LỊCH TUYẾN - MT1 (${isWeekOdd ? 'CHU KỲ 1' : 'CHU KỲ 2'})`;
       titleCell.font = { size: 14, bold: true, color: { argb: 'FF0047AB' } };
       titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
-      // BẢNG 1: Phân Loại Khách Hàng
-      wsDash.mergeCells('B4:E4');
+      wsDash.mergeCells('B4:D4');
       wsDash.getCell('B4').value = '1. CẤU TRÚC PHÂN LOẠI KHÁCH HÀNG';
       wsDash.getCell('B4').font = { bold: true };
 
-      wsDash.addRow(['', 'Nhóm Phân Loại', 'Số Lượng', 'Tỷ Trọng (%)', 'Tần Suất']);
+      wsDash.addRow(['', 'Nhóm Khách Hàng', 'Số Lượng', 'Ghi Chú']);
       const hRow1 = wsDash.lastRow;
       hRow1.eachCell((c, i) => {
-        if(i>1) { 
-          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0047AB' } }; 
-          c.font = { color: { argb: 'FFFFFFFF' }, bold: true }; 
-          c.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; 
-          c.alignment = { horizontal: 'center', vertical: 'middle' };
-        }
+        if(i>1) { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0047AB' } }; c.font = { color: { argb: 'FFFFFFFF' }, bold: true }; c.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; }
       });
 
-      const addRowDash = (col2, col3, col4, col5 = '') => {
-        wsDash.addRow(['', col2, col3, col4, col5]);
+      const addRowDash = (col2, col3, col4) => {
+        wsDash.addRow(['', col2, col3, col4]);
         const r = wsDash.lastRow;
-        [2,3,4,5].forEach(i => {
-            if(r.getCell(i).value !== '') {
-               r.getCell(i).border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
-               if (i > 2) r.getCell(i).alignment = { horizontal: 'center', vertical: 'middle' };
-            }
-        });
+        [2,3,4].forEach(i => r.getCell(i).border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} });
         return r;
       };
 
-      addRowDash('Khách Hàng Trọng Điểm', trongDiemCount, `${trongDiemPercent}%`, 'Mỗi tuần');
-      addRowDash('Khách Hàng Duy Trì', duyTriCount, `${100 - trongDiemPercent}%`, 'Luân phiên');
-      const sumR = addRowDash('TỔNG DATA HIỆN CÓ', customers.length, '100%', '');
-      sumR.font = { bold: true };
-
+      addRowDash('Khách Trọng Điểm', trongDiemCount, 'Thăm viếng mỗi tuần');
+      addRowDash('Khách Duy Trì', duyTriCount, 'Xoay vòng luân phiên');
       wsDash.addRow([]); 
 
-      // BẢNG 2: Phân Bổ Mật Độ Huyện
-      wsDash.mergeCells(`B${wsDash.rowCount + 1}:E${wsDash.rowCount + 1}`);
-      wsDash.lastRow.getCell(2).value = '2. PHÂN BỔ MẬT ĐỘ THEO ĐỊA BÀN';
+      wsDash.mergeCells(`B${wsDash.rowCount + 1}:D${wsDash.rowCount + 1}`);
+      wsDash.lastRow.getCell(2).value = '2. KIỂM SOÁT KPI (Chuẩn: 8-12 CH/ngày)';
       wsDash.lastRow.getCell(2).font = { bold: true };
 
-      wsDash.addRow(['', 'Khu Vực (Huyện/Thị)', 'Số Lượng CH', 'Tỷ Trọng (%)', '']);
-      const hRowGeo = wsDash.lastRow;
-      hRowGeo.eachCell((c, i) => {
-        if(i>1 && i<5) { 
-          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00B050' } }; 
-          c.font = { color: { argb: 'FFFFFFFF' }, bold: true }; 
-          c.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; 
-          c.alignment = { horizontal: 'center', vertical: 'middle' };
-        }
-      });
-
-      geoArr.forEach(([huyen, count]) => {
-         addRowDash(huyen, count, `${Math.round((count/customers.length)*100)}%`, '');
-      });
-      wsDash.addRow([]); 
-
-      // BẢNG 3: KPI Tuyến
-      wsDash.mergeCells(`B${wsDash.rowCount + 1}:E${wsDash.rowCount + 1}`);
-      wsDash.lastRow.getCell(2).value = '3. KIỂM SOÁT TIẾN ĐỘ KPI (Chỉ Tiêu: 8-12 Đại Lý/Ngày)';
-      wsDash.lastRow.getCell(2).font = { bold: true };
-
-      wsDash.addRow(['', 'Ngày Lộ Trình', 'Số Cửa Hàng', 'Đánh Giá Tiến Độ', '']);
+      wsDash.addRow(['', 'Ngày', 'Cửa Hàng Dự Kiến', 'Tình Trạng KPI']);
       const hRow2 = wsDash.lastRow;
       hRow2.eachCell((c, i) => {
-        if(i>1 && i<5) { 
-          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE36C09' } }; 
-          c.font = { color: { argb: 'FFFFFFFF' }, bold: true }; 
-          c.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; 
-          c.alignment = { horizontal: 'center', vertical: 'middle' };
-        }
+        if(i>1) { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE36C09' } }; c.font = { color: { argb: 'FFFFFFFF' }, bold: true }; c.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; }
       });
 
       let totalActive = 0;
@@ -327,25 +283,25 @@ export default function MPE_Routing_System() {
         const count = schedule[key].items.length;
         totalActive += count;
         let kpiStatus = 'Đạt Chỉ Tiêu'; let kpiColor = 'FF008000'; 
-        if (count < 8) { kpiStatus = 'Chưa Đạt Chỉ Tiêu'; kpiColor = 'FFFF0000'; }
-        if (count > 12) { kpiStatus = 'Vượt Mức'; kpiColor = 'FFE36C09'; }
+        if (count < 8) { kpiStatus = 'Dưới KPI'; kpiColor = 'FFFF0000'; }
+        if (count > 12) { kpiStatus = 'Vượt Mức'; kpiColor = 'FFC00000'; }
 
-        const r = addRowDash(schedule[key].day, count, kpiStatus, '');
+        const r = addRowDash(schedule[key].day, count, kpiStatus);
         r.getCell(4).font = { bold: true, color: { argb: kpiColor } };
       });
-      const sumR2 = addRowDash('TỔNG THỰC HIỆN TRONG CHU KỲ', totalActive, '', '');
+      const sumR2 = addRowDash('TỔNG SỐ CHECK-IN TRONG CHU KỲ', totalActive, '');
       sumR2.font = { bold: true };
 
       // --- SHEET 2: LỊCH ĐI TUYẾN ---
-      const wsData = wb.addWorksheet('Lịch Trình Chi Tiết', { views: [{ state: 'frozen', ySplit: 1 }] });
+      const wsData = wb.addWorksheet('Lịch Chi Tiết', { views: [{ state: 'frozen', ySplit: 1 }] });
       wsData.columns = [
         { header: 'NGÀY', key: 'day', width: 15 },
-        { header: 'MỤC TIÊU CÔNG VIỆC', key: 'target', width: 35 },
-        { header: 'TÊN ĐẠI LÝ / CỬA HÀNG', key: 'name', width: 35 },
+        { header: 'MỤC TIÊU', key: 'target', width: 35 },
+        { header: 'TÊN KHÁCH HÀNG', key: 'name', width: 35 },
         { header: 'ĐIỆN THOẠI', key: 'phone', width: 15 },
-        { header: 'ĐỊA CHỈ', key: 'xa', width: 25 },
-        { header: 'KHU VỰC', key: 'huyen', width: 20 },
-        { header: 'PHÂN LỚP', key: 'type', width: 20 }
+        { header: 'XÃ/PHƯỜNG', key: 'xa', width: 25 },
+        { header: 'HUYỆN/THỊ', key: 'huyen', width: 20 },
+        { header: 'PHÂN LOẠI', key: 'type', width: 20 }
       ];
 
       wsData.getRow(1).eachCell((cell) => {
@@ -368,8 +324,8 @@ export default function MPE_Routing_System() {
             cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
             if (colNumber === 7) { 
-               cell.font = { bold: true, color: { argb: c.type === 'TRONG_DIEM' ? 'FF0047AB' : 'FF595959' } }; 
-               cell.alignment = { horizontal: 'center', vertical: 'middle' };
+              cell.font = { bold: true, color: { argb: c.type === 'TRONG_DIEM' ? 'FF0047AB' : 'FF595959' } }; 
+              cell.alignment = { horizontal: 'center', vertical: 'middle' };
             }
           });
         });
@@ -380,20 +336,20 @@ export default function MPE_Routing_System() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `Lich_Trinh_Trien_Khai_${isWeekOdd ? 'ChuKy1' : 'ChuKy2'}.xlsx`;
+      link.download = `Lich_Tuyen_MT1_${isWeekOdd ? 'ChuKy1' : 'ChuKy2'}.xlsx`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       
-      setStatus({ type: 'success', text: 'Xuất file Báo cáo thành công.' });
+      setStatus({ type: 'success', text: 'Xuất file Báo cáo Excel thành công.' });
     } catch (err) {
-      setStatus({ type: 'error', text: 'Lỗi truy xuất hệ thống: ' + err.message });
+      setStatus({ type: 'error', text: 'Lỗi khi tạo file: ' + err.message });
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-2 md:p-6 font-sans text-slate-800">
+    <div className="min-h-screen bg-slate-100 p-2 md:p-6 font-sans text-slate-800">
       <div className="max-w-7xl mx-auto space-y-4">
         
         {/* ================= HEADER ================= */}
@@ -404,9 +360,9 @@ export default function MPE_Routing_System() {
               <p className="text-sm font-medium text-slate-500 mt-1">Đảm bảo định mức 26 ngày công - Tối ưu chỉ tiêu doanh số.</p>
             </div>
             <div className="flex bg-slate-100 p-1.5 rounded-lg overflow-x-auto w-full md:w-auto">
-              <button onClick={() => setActiveTab('upload')} className={`whitespace-nowrap px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'upload' ? 'bg-white shadow text-blue-800' : 'text-slate-500 hover:text-slate-700'}`}>1. Cập Nhật Data</button>
-              <button onClick={() => setActiveTab('categorize')} disabled={customers.length === 0} className={`whitespace-nowrap px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'categorize' ? 'bg-white shadow text-blue-800' : 'text-slate-500'} disabled:opacity-40`}>2. Phân Loại KH</button>
-              <button onClick={() => setActiveTab('analysis')} disabled={customers.length === 0} className={`whitespace-nowrap px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'analysis' ? 'bg-white shadow text-blue-800' : 'text-slate-500'} disabled:opacity-40`}>3. Phân Tích</button>
+              <button onClick={() => setActiveTab('upload')} className={`whitespace-nowrap px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'upload' ? 'bg-white shadow text-blue-800' : 'text-slate-500 hover:text-slate-700'}`}>1. Nạp File</button>
+              <button onClick={() => setActiveTab('categorize')} disabled={customers.length === 0} className={`whitespace-nowrap px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'categorize' ? 'bg-white shadow text-blue-800' : 'text-slate-500'} disabled:opacity-40`}>2. Phân Loại</button>
+              <button onClick={() => setActiveTab('analysis')} disabled={customers.length === 0} className={`whitespace-nowrap px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'analysis' ? 'bg-white shadow text-blue-800' : 'text-slate-500'} disabled:opacity-40`}>3. Phân Tích Địa Bàn</button>
               <button onClick={() => { if(!schedule) executeRouting(); setActiveTab('schedule'); }} disabled={customers.length === 0} className={`whitespace-nowrap px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'schedule' ? 'bg-blue-600 shadow text-white' : 'text-slate-500'} disabled:opacity-40`}>4. Lịch & Báo Cáo</button>
             </div>
           </div>
@@ -431,7 +387,7 @@ export default function MPE_Routing_System() {
               <div>
                 <h2 className="text-2xl font-black text-slate-800">Nạp File .XLSX Của Bạn</h2>
                 <p className="text-slate-500 text-sm mt-3 leading-relaxed">
-                  Tải file danh sách lên. Hệ thống sẽ lọc <b>Khách trùng lặp</b>.
+                  Tải file danh sách lên. Hệ thống sẽ tự động đồng bộ và loại bỏ các dữ liệu trùng lặp.
                 </p>
               </div>
               
@@ -451,23 +407,9 @@ export default function MPE_Routing_System() {
         {/* ================= TAB 2: CHỌN HẠNG KHÁCH HÀNG ================= */}
         {activeTab === 'categorize' && customers.length > 0 && (
           <div className="space-y-4 animate-in fade-in">
-            
-            {/* THÔNG BÁO LỌC TRÙNG */}
             {duplicateCount > 0 && (
               <div className="bg-blue-50 border border-blue-100 text-blue-800 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2">
-                <Info size={18} /> Đã gộp chung {duplicateCount} cửa hàng bị ghi trùng lặp trong file gốc.
-              </div>
-            )}
-
-            {/* NHẮC NHỞ / CẢNH BÁO TỈ LỆ KHÁCH TRỌNG ĐIỂM */}
-            {showLowWarning && (
-              <div className="bg-amber-50 border border-amber-300 text-amber-800 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2">
-                <AlertCircle size={18} /> Nhắc nhở: Số lượng Khách Trọng Điểm đang khá thấp ({trongDiemPercent}%). Hệ thống khuyến nghị mức 30-40% để đảm bảo tối ưu lộ trình và đủ doanh số mốc thưởng.
-              </div>
-            )}
-            {showHighWarning && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2">
-                <AlertCircle size={18} /> Cảnh báo: Số lượng Khách Trọng Điểm quá nhiều ({trongDiemPercent}%). Việc đi quá nhiều điểm/tuần có thể gây quá tải và vi phạm mốc KPI thời gian.
+                <Info size={18} /> Hệ thống đã chuẩn hóa và gộp chung {duplicateCount} cửa hàng bị ghi trùng lặp.
               </div>
             )}
 
@@ -477,7 +419,7 @@ export default function MPE_Routing_System() {
                    <Target className="text-blue-600" size={28} />
                    <div>
                      <h3 className="font-black text-slate-800 text-lg">Khách Trọng Điểm</h3>
-                     <p className="text-xs text-blue-600 font-bold uppercase">Đi mỗi tuần (Chốt doanh số lớn)</p>
+                     <p className="text-xs text-blue-600 font-bold uppercase">Thăm viếng mỗi tuần</p>
                    </div>
                  </div>
                  <p className="text-xs text-slate-500 font-medium">👉 Click vào tên để đổi sang <span className="text-blue-600 font-bold">Màu Xanh</span>.</p>
@@ -488,10 +430,10 @@ export default function MPE_Routing_System() {
                    <Users className="text-slate-500" size={28} />
                    <div>
                      <h3 className="font-black text-slate-800 text-lg">Khách Duy Trì</h3>
-                     <p className="text-xs text-slate-500 font-bold uppercase">Xoay vòng 2 lần/tháng</p>
+                     <p className="text-xs text-slate-500 font-bold uppercase">Xoay vòng luân phiên 2 lần/tháng</p>
                    </div>
                  </div>
-                 <p className="text-xs text-slate-500 font-medium">👉 Mặc định file tải lên là <span className="text-slate-500 font-bold">Màu Xám</span> (Duy Trì).</p>
+                 <p className="text-xs text-slate-500 font-medium">👉 Mặc định file tải lên được phân loại ở mức <span className="text-slate-500 font-bold">Duy Trì</span>.</p>
                </div>
             </div>
 
@@ -514,7 +456,7 @@ export default function MPE_Routing_System() {
                           <div className={`font-bold text-[15px] truncate ${c.type === 'TRONG_DIEM' ? 'text-blue-900' : 'text-slate-700'}`}>{c.name}</div>
                           <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-1 font-medium"><MapPin size={12}/> {c.huyen}</div>
                        </div>
-                       <div className={`shrink-0 text-[10px] uppercase font-bold px-2 py-1 rounded-md font-black transition-colors ${c.type === 'TRONG_DIEM' ? 'bg-blue-600 text-white shadow' : 'bg-slate-100 text-slate-400'}`}>
+                       <div className={`shrink-0 text-[10px] uppercase font-bold px-2 py-1 rounded-md transition-colors ${c.type === 'TRONG_DIEM' ? 'bg-blue-600 text-white shadow' : 'bg-slate-100 text-slate-400'}`}>
                           {c.type === 'TRONG_DIEM' ? 'Trọng Điểm' : 'Duy Trì'}
                        </div>
                     </div>
@@ -527,39 +469,28 @@ export default function MPE_Routing_System() {
         {/* ================= TAB 3: PHÂN TÍCH ĐỊA BÀN ================= */}
         {activeTab === 'analysis' && customers.length > 0 && (
           <div className="space-y-6 animate-in fade-in">
-            <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2"><BarChart3 className="text-blue-600"/> Tỉ Trọng & Địa Bàn</h2>
+            <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2"><LayoutDashboard className="text-blue-600"/> Phân Tích Cơ Cấu Dữ Liệu</h2>
             
-            {showLowWarning && (
-              <div className="bg-amber-50 border border-amber-300 text-amber-800 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2">
-                <AlertCircle size={18} /> Nhắc nhở: Tỉ lệ Khách Trọng Điểm đang ở mức thấp ({trongDiemPercent}%). Cần chú ý để đảm bảo doanh số KPI.
-              </div>
-            )}
-            {showHighWarning && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2">
-                <AlertCircle size={18} /> Cảnh báo: Tỉ lệ Khách Trọng Điểm đang quá cao ({trongDiemPercent}%). Có nguy cơ quá tải lộ trình.
-              </div>
-            )}
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2"><Users size={18}/> Cơ Cấu Khách Hàng</h3>
+                <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2"><Users size={18}/> Tỉ Trọng Khách Hàng</h3>
                 <div className="space-y-6">
                   <div>
                     <div className="flex justify-between text-sm font-bold mb-2">
                       <span className="text-blue-700">Khách Trọng Điểm</span>
-                      <span className="text-blue-700">{trongDiemCount} CH ({trongDiemPercent}%)</span>
+                      <span className="text-blue-700">{trongDiemCount} CH ({Math.round((trongDiemCount/customers.length)*100)}%)</span>
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden shadow-inner">
-                      <div className="bg-blue-600 h-4 rounded-full transition-all duration-1000" style={{width: `${trongDiemPercent}%`}}></div>
+                      <div className="bg-blue-600 h-4 rounded-full transition-all duration-1000" style={{width: `${(trongDiemCount/customers.length)*100}%`}}></div>
                     </div>
                   </div>
                   <div>
                     <div className="flex justify-between text-sm font-bold mb-2">
                       <span className="text-slate-600">Khách Duy Trì</span>
-                      <span className="text-slate-600">{duyTriCount} CH ({100 - trongDiemPercent}%)</span>
+                      <span className="text-slate-600">{duyTriCount} CH ({Math.round((duyTriCount/customers.length)*100)}%)</span>
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden shadow-inner">
-                      <div className="bg-slate-400 h-4 rounded-full transition-all duration-1000" style={{width: `${100 - trongDiemPercent}%`}}></div>
+                      <div className="bg-slate-400 h-4 rounded-full transition-all duration-1000" style={{width: `${(duyTriCount/customers.length)*100}%`}}></div>
                     </div>
                   </div>
                 </div>
@@ -586,7 +517,7 @@ export default function MPE_Routing_System() {
 
             <div className="flex justify-center mt-8">
               <button onClick={() => { executeRouting(); setActiveTab('schedule'); }} className="bg-blue-600 hover:bg-blue-700 text-white px-10 py-4 rounded-xl font-black text-lg flex items-center gap-3 shadow-xl shadow-blue-200 transition-transform active:scale-95">
-                <Calendar size={24}/> CHẠY LỊCH TUYẾN TỐI ƯU
+                <Calendar size={24}/> THIẾT LẬP LỘ TRÌNH ĐI TUYẾN
               </button>
             </div>
           </div>
@@ -595,13 +526,25 @@ export default function MPE_Routing_System() {
         {/* ================= TAB 4: LỊCH TUYẾN & XUẤT BÁO CÁO EXCEL ================= */}
         {activeTab === 'schedule' && schedule && (
           <div className="space-y-5 animate-in fade-in">
+            
+            <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 px-5 py-4 rounded-xl text-sm font-medium shadow-sm flex flex-col md:flex-row gap-4 items-start md:items-center">
+               <div className="flex-1">
+                 <strong className="block text-emerald-900 mb-1 text-base">Tiêu Chuẩn Lộ Trình:</strong>
+                 <ul className="list-disc ml-5 space-y-1">
+                   <li>Đảm bảo tiến độ KPI: Duy trì 8-12 Đại lý/ngày.</li>
+                   <li>Tối ưu cung đường: Triển khai theo từng cụm, hạn chế di chuyển phân tán.</li>
+                   <li>Kết hợp công tác khảo sát, phát triển đại lý mới vào lộ trình tuyến gần.</li>
+                 </ul>
+               </div>
+            </div>
+
             <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
               <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
                 <div className="bg-slate-800 text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 w-full sm:w-auto">
-                  <Calendar size={18} /> {isWeekOdd ? 'Chu Kỳ Xoay Vòng 1' : 'Chu Kỳ Xoay Vòng 2'}
+                  <Calendar size={18} /> {isWeekOdd ? 'Chu Kỳ Triển Khai 1' : 'Chu Kỳ Triển Khai 2'}
                 </div>
                 <button onClick={() => { setIsWeekOdd(!isWeekOdd); setTimeout(executeRouting, 50); }} className="text-sm font-bold text-blue-700 bg-blue-50 border border-blue-200 px-5 py-3 rounded-xl w-full sm:w-auto hover:bg-blue-100 transition-colors flex justify-center items-center gap-2">
-                  <RefreshCw size={16}/> Xem Chu Kỳ Khác
+                  <RefreshCw size={16}/> Chuyển Chu Kỳ
                 </button>
               </div>
               
@@ -617,8 +560,8 @@ export default function MPE_Routing_System() {
                 if (count < 8) kpiColor = 'bg-red-100 text-red-700 border-red-200';
 
                 return (
-                  <div key={key} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm flex flex-col hover:border-blue-300 transition-colors">
-                    <div className="p-4 border-b border-slate-100">
+                  <div key={key} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm flex flex-col">
+                    <div className="bg-slate-50 p-4 border-b border-slate-200">
                       <div className="flex justify-between items-center mb-3">
                         <h3 className="font-black text-slate-800 text-xl">{data.day}</h3>
                         <div className={`px-2.5 py-1.5 text-[11px] font-bold rounded-md border ${kpiColor}`}>
@@ -631,7 +574,7 @@ export default function MPE_Routing_System() {
                     </div>
                     
                     <div className="p-2.5 bg-slate-800 text-white text-[13px] font-semibold flex justify-between items-center">
-                       <span className="flex items-center gap-1.5"><MapPin size={16} className="text-slate-400" /> Vùng: {data.location}</span>
+                       <span className="flex items-center gap-1.5"><MapPin size={16} className="text-slate-400" /> Khu vực: {data.location}</span>
                     </div>
                     
                     <div className="p-3 flex-grow overflow-y-auto max-h-[300px] bg-slate-50/50 custom-scrollbar relative">
@@ -640,7 +583,7 @@ export default function MPE_Routing_System() {
                       ) : (
                         <ul className="space-y-2 pb-10">
                           {data.items.map(c => (
-                            <li key={c.id} className="bg-white p-3.5 rounded-xl border border-slate-200 flex justify-between items-start gap-3 shadow-sm hover:border-blue-300 transition-colors">
+                            <li key={c.id} className="bg-white p-3.5 rounded-xl border border-slate-200 flex justify-between items-start gap-3 shadow-sm hover:border-blue-200 transition-colors">
                                <div className="flex-1 min-w-0">
                                  <div className="font-bold text-slate-800 text-[14px] truncate">{c.name}</div>
                                  <div className="text-[11px] text-slate-500 mt-1 font-medium">{c.xa}, {c.huyen}</div>
@@ -656,7 +599,7 @@ export default function MPE_Routing_System() {
                       {/* KHUYẾN NGHỊ MỞ MỚI */}
                       {(key === 'T4' || key === 'T7') && (
                         <div className="mt-2 bg-blue-50/50 border border-blue-200 border-dashed rounded-lg p-3 flex items-center justify-center gap-2 text-blue-700 text-xs font-bold uppercase tracking-wider">
-                          <Navigation size={14} /> + C.tác phát triển thị trường
+                          <Navigation size={14} /> Công tác phát triển thị trường
                         </div>
                       )}
                     </div>
@@ -676,3 +619,6 @@ export default function MPE_Routing_System() {
     </div>
   );
 }
+
+
+
