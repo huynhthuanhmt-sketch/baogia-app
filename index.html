@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hệ Thống Lộ Trình Tuyến MPE - Cấp Quản Trị</title>
+    <title>Lịch Chăm Sóc Khách Hàng</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome Icons -->
@@ -19,23 +19,25 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect, useRef, useCallback } = React;
 
-        // Hàm tính khoảng cách đường chim bay (Haversine formula)
         const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
-            const R = 6371; // Bán kính trái đất (km)
+            const R = 6371; 
             const dLat = (lat2 - lat1) * (Math.PI / 180);
             const dLon = (lon2 - lon1) * (Math.PI / 180);
-            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                      Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
-                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
             const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
             return (R * c).toFixed(1);
         };
 
+        const formatVND = (amount) => {
+            return new Intl.NumberFormat('vi-VN').format(amount || 0);
+        };
+
         function App() {
             const [customers, setCustomers] = useState([]);
-            const [homeLocation, setHomeLocation] = useState(null); // Tọa độ nhà
+            const [homeLocation, setHomeLocation] = useState(null); 
+            const [searchTerm, setSearchTerm] = useState(''); 
             
             const currentObjDate = new Date();
             const [selectedMonth, setSelectedMonth] = useState(currentObjDate.getMonth() + 1);
@@ -43,6 +45,9 @@
             const [activeWeekTab, setActiveWeekTab] = useState(1);
             const [fullMonthSchedule, setFullMonthSchedule] = useState(null); 
             
+            const [targetQuarter, setTargetQuarter] = useState(600000000);
+            const [targetYear, setTargetYear] = useState(2400000000);
+
             const [activeTab, setActiveTab] = useState('upload'); 
             const [status, setStatus] = useState({ type: 'loading', text: 'Đang khởi động hệ thống...' });
             const [librariesReady, setLibrariesReady] = useState(false);
@@ -50,14 +55,11 @@
             const [hasSavedData, setHasSavedData] = useState(false);
             const fileInputRef = useRef(null);
 
-            // 1. KHỞI TẠO THƯ VIỆN & KIỂM TRA BỘ NHỚ LƯU TRỮ
             useEffect(() => {
                 const loadScript = (src) => new Promise((resolve, reject) => {
                     if (document.querySelector(`script[src="${src}"]`)) return resolve();
                     const script = document.createElement('script');
-                    script.src = src;
-                    script.onload = resolve;
-                    script.onerror = reject;
+                    script.src = src; script.onload = resolve; script.onerror = reject;
                     document.head.appendChild(script);
                 });
 
@@ -75,26 +77,21 @@
                             setStatus({ type: 'success', text: 'Hệ thống đã sẵn sàng.' });
                         }
                     });
-                }).catch(() => {
-                    setStatus({ type: 'error', text: 'Lỗi tải thư viện. Vui lòng kiểm tra mạng.' });
-                });
+                }).catch(() => setStatus({ type: 'error', text: 'Lỗi tải thư viện. Vui lòng kiểm tra mạng.' }));
             }, []);
 
-            // AUTO-SAVE: TỰ ĐỘNG LƯU DỮ LIỆU
             useEffect(() => {
                 if (librariesReady && customers.length > 0) {
-                    window.localforage.setItem('mpe_routing_data_pro', {
-                        customers,
-                        fullMonthSchedule,
-                        selectedMonth,
-                        selectedYear,
-                        homeLocation
-                    });
-                    setHasSavedData(true);
+                    const timeoutId = setTimeout(() => {
+                        window.localforage.setItem('mpe_routing_data_pro', {
+                            customers, fullMonthSchedule, selectedMonth, selectedYear, homeLocation, targetQuarter, targetYear
+                        });
+                        setHasSavedData(true);
+                    }, 500);
+                    return () => clearTimeout(timeoutId);
                 }
-            }, [customers, fullMonthSchedule, selectedMonth, selectedYear, homeLocation, librariesReady]);
+            }, [customers, fullMonthSchedule, selectedMonth, selectedYear, homeLocation, targetQuarter, targetYear, librariesReady]);
 
-            // HÀM KHÔI PHỤC DỮ LIỆU
             const restoreData = () => {
                 setStatus({ type: 'loading', text: 'Đang khôi phục dữ liệu...' });
                 window.localforage.getItem('mpe_routing_data_pro').then(data => {
@@ -104,6 +101,8 @@
                         setSelectedMonth(data.selectedMonth || selectedMonth);
                         setSelectedYear(data.selectedYear || selectedYear);
                         setHomeLocation(data.homeLocation || null);
+                        if(data.targetQuarter) setTargetQuarter(data.targetQuarter);
+                        if(data.targetYear) setTargetYear(data.targetYear);
                         
                         setActiveTab(data.fullMonthSchedule ? 'schedule' : 'categorize');
                         setStatus({ type: 'success', text: 'Đã khôi phục thành công!' });
@@ -111,99 +110,90 @@
                 });
             };
 
-            // HÀM XÓA DỮ LIỆU CŨ ĐỂ LÀM MỚI
             const clearDataAndNew = () => {
                 window.localforage.removeItem('mpe_routing_data_pro');
-                setHasSavedData(false);
-                setCustomers([]);
-                setFullMonthSchedule(null);
-                setHomeLocation(null);
+                setHasSavedData(false); setCustomers([]); setFullMonthSchedule(null); setHomeLocation(null);
                 if (fileInputRef.current) fileInputRef.current.click();
             };
 
-            // 2. NẠP FILE (GIỮ LẠI ĐỊNH VỊ CŨ NẾU TRÙNG TÊN)
-            const handleFileUpload = (event) => {
-                const file = event.target.files[0];
-                if (!file) return;
+            const goBack = () => {
+                setSearchTerm('');
+                if (activeTab === 'schedule') setActiveTab('analysis');
+                else if (activeTab === 'analysis') setActiveTab('categorize');
+                else if (activeTab === 'categorize') setActiveTab('upload');
+            };
+
+            const handleFileUpload = async (event) => {
+                const files = event.target.files;
+                if (!files || files.length === 0) return;
                 if (!librariesReady || !window.XLSX) return setStatus({ type: 'error', text: 'Thư viện chưa sẵn sàng.' });
 
-                setStatus({ type: 'loading', text: 'Đang xử lý file Excel...' });
+                setStatus({ type: 'loading', text: 'Đang xử lý...' });
                 
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    try {
-                        const data = new Uint8Array(e.target.result);
-                        const workbook = window.XLSX.read(data, { type: 'array' });
+                let allData = [];
+                try {
+                    for (let i = 0; i < files.length; i++) {
+                        const file = files[i];
+                        const buffer = await file.arrayBuffer();
+                        const workbook = window.XLSX.read(buffer, { type: 'array' });
                         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
                         const jsonData = window.XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
-                        processThuanExcel(jsonData);
-                    } catch (err) {
-                        setStatus({ type: 'error', text: 'Lỗi định dạng file: ' + err.message });
+                        allData = allData.concat(jsonData);
                     }
-                };
-                reader.onerror = () => setStatus({ type: 'error', text: 'Lỗi khi đọc file.' });
-                reader.readAsArrayBuffer(file);
+                    processAndMergeExcel(allData);
+                } catch (err) {
+                    setStatus({ type: 'error', text: 'Lỗi định dạng file: ' + err.message });
+                }
                 if (fileInputRef.current) fileInputRef.current.value = '';
             };
 
-            const processThuanExcel = (data) => {
-                const parsedData = [];
-                const seenNames = new Set();
+            const processAndMergeExcel = (data) => {
+                const customerMap = new Map();
                 let idCounter = 1;
                 let duplicates = 0;
-                const oldCustomers = [...customers]; // Dùng để bảo toàn định vị cũ
+                const oldCustomers = [...customers];
 
-                const cleanForDuplicateCheck = (name) => {
-                    if (!name) return ""; 
-                    return String(name).toLowerCase().replace(/\s+/g, '');
-                };
+                const cleanName = (name) => String(name).toLowerCase().replace(/\s+/g, '').trim();
 
-                const addCustomer = (name, phone, xa, huyen) => {
-                    if (!name) return; 
-                    const normalizedCheck = cleanForDuplicateCheck(name);
-                    if (seenNames.has(normalizedCheck)) {
-                        duplicates++; return;
-                    }
-                    seenNames.add(normalizedCheck);
-                    
-                    // Tìm xem khách này trước đó đã có định vị chưa
-                    const existingCust = oldCustomers.find(c => cleanForDuplicateCheck(c.name) === normalizedCheck);
-
-                    parsedData.push({
-                        id: `MT1_${Date.now()}_${idCounter++}`, 
-                        name: String(name),
-                        phone: phone ? String(phone) : '',
-                        xa: xa ? String(xa) : 'CHƯA RÕ',
-                        huyen: huyen ? String(huyen) : 'CHƯA RÕ',
-                        type: existingCust ? existingCust.type : 'DUY_TRI', 
-                        subGroup: idCounter % 2 === 0 ? 2 : 1,
-                        location: existingCust ? existingCust.location : null // Bảo toàn định vị
-                    });
+                const isCustomerRow = (row) => {
+                    if (!row || row.length < 2) return false;
+                    const stt = String(row[0]).trim();
+                    const name = String(row[1]).trim();
+                    const invalidWords = ['TÊN KHÁCH HÀNG', 'DOANH SỐ', 'BẢNG THEO DÕI', 'NVKD', 'CHỈ TIÊU'];
+                    if (stt && !isNaN(stt) && name) return !invalidWords.some(w => name.toUpperCase().includes(w));
+                    return false;
                 };
 
                 for (let i = 0; i < data.length; i++) {
-                    if (!Array.isArray(data[i])) continue; 
-
                     const row = data[i].map(cell => cell ? cell.toString().trim() : '');
-                    const stt1 = row[0]; const name1 = row[1];
-                    if (stt1 && !isNaN(stt1) && name1 && name1 !== 'TÊN KHÁCH HÀNG') {
-                        addCustomer(name1, row[2], row[3], row[4]);
-                    }
-                    let rightIdx = -1;
-                    for (let c = 4; c < 10; c++) {
-                        if (row[c] && !isNaN(row[c]) && row[c+1] && row[c+1] !== 'TÊN KHÁCH HÀNG') { rightIdx = c; break; }
-                    }
-                    if (rightIdx !== -1) {
-                        addCustomer(row[rightIdx + 1], row[rightIdx + 2], row[rightIdx + 3], row[rightIdx + 4]);
+                    if (isCustomerRow(row)) {
+                        const name = row[1]; const phone = row[2] || ''; const xa = row[3] || 'CHƯA RÕ'; const huyen = row[4] || 'CHƯA RÕ';
+                        const key = cleanName(name);
+
+                        if (customerMap.has(key)) {
+                            duplicates++;
+                            const existing = customerMap.get(key);
+                            if (!existing.phone && phone) existing.phone = phone;
+                            if (existing.xa === 'CHƯA RÕ' && xa) existing.xa = xa;
+                            if (existing.huyen === 'CHƯA RÕ' && huyen) existing.huyen = huyen;
+                        } else {
+                            const existingOld = oldCustomers.find(c => cleanName(c.name) === key);
+                            customerMap.set(key, {
+                                id: `MT1_${Date.now()}_${idCounter++}`, name: String(name), phone: phone, xa: xa, huyen: huyen,
+                                type: existingOld ? existingOld.type : 'DUY_TRI', subGroup: idCounter % 2 === 0 ? 2 : 1,
+                                location: existingOld ? existingOld.location : null
+                            });
+                        }
                     }
                 }
 
-                if (parsedData.length === 0) return setStatus({ type: 'error', text: 'Không trích xuất được dữ liệu.' });
+                const finalParsed = Array.from(customerMap.values());
+                if (finalParsed.length === 0) return setStatus({ type: 'error', text: 'Không trích xuất được KH nào.' });
 
-                setCustomers(parsedData);
+                setCustomers(finalParsed);
                 setDuplicateCount(duplicates);
                 setActiveTab('categorize');
-                setStatus({ type: 'success', text: `Đã nạp ${parsedData.length} KH. Loại bỏ ${duplicates} KH trùng lặp.` });
+                setStatus({ type: 'success', text: `Nạp thành công ${finalParsed.length} KH chuẩn. Gộp ${duplicates} dữ liệu trùng.` });
                 setFullMonthSchedule(null);
             };
 
@@ -212,108 +202,73 @@
                 setFullMonthSchedule(null);
             };
 
-            // ---------------- TÍNH NĂNG ĐỊNH VỊ (GPS) ----------------
             const handleSetHomeLocation = () => {
                 if (!navigator.geolocation) return setStatus({ type: 'error', text: 'Trình duyệt không hỗ trợ định vị.' });
-                setStatus({ type: 'loading', text: 'Đang lấy tọa độ nhà...' });
+                setStatus({ type: 'loading', text: 'Đang lấy tọa độ...' });
                 navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                        setHomeLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-                        setStatus({ type: 'success', text: 'Đã lưu Điểm Xuất Phát!' });
-                    },
-                    (err) => setStatus({ type: 'error', text: 'Vui lòng cấp quyền Vị Trí (Location) cho trình duyệt.' }),
-                    { enableHighAccuracy: true }
+                    (pos) => { setHomeLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setStatus({ type: 'success', text: 'Đã lưu Vị trí!' }); },
+                    (err) => setStatus({ type: 'error', text: 'Vui lòng cấp quyền Vị Trí.' }), { enableHighAccuracy: true }
                 );
             };
 
             const handleSetCustomerLocation = (id) => {
                 if (!navigator.geolocation) return setStatus({ type: 'error', text: 'Trình duyệt không hỗ trợ định vị.' });
-                setStatus({ type: 'loading', text: 'Đang lấy tọa độ cửa hàng...' });
+                setStatus({ type: 'loading', text: 'Đang lấy tọa độ...' });
                 navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                        setCustomers(prev => prev.map(c => c.id === id ? { ...c, location: { lat: pos.coords.latitude, lng: pos.coords.longitude } } : c));
-                        setStatus({ type: 'success', text: 'Đã lưu định vị cửa hàng!' });
-                    },
-                    (err) => setStatus({ type: 'error', text: 'Vui lòng cấp quyền Vị Trí (Location) cho trình duyệt.' }),
-                    { enableHighAccuracy: true }
+                    (pos) => { setCustomers(prev => prev.map(c => c.id === id ? { ...c, location: { lat: pos.coords.latitude, lng: pos.coords.longitude } } : c)); setStatus({ type: 'success', text: 'Đã lưu tọa độ!' }); },
+                    (err) => setStatus({ type: 'error', text: 'Vui lòng cấp quyền Vị Trí.' }), { enableHighAccuracy: true }
                 );
             };
 
-            const handleRemoveCustomerLocation = (id) => {
-                setCustomers(prev => prev.map(c => c.id === id ? { ...c, location: null } : c));
-            };
-
+            const handleRemoveCustomerLocation = (id) => setCustomers(prev => prev.map(c => c.id === id ? { ...c, location: null } : c));
             const getCustomerLocation = (id) => customers.find(c => c.id === id)?.location;
 
-            // ---------------- TÍNH NĂNG DOANH SỐ & LỘ TRÌNH ----------------
-            const handleSalesChange = (week, day, customerId, salesValue) => {
-                const newSchedule = { ...fullMonthSchedule };
-                const dayItems = newSchedule[week][day].items;
-                const itemIndex = dayItems.findIndex(i => i.id === customerId);
-                if (itemIndex > -1) {
-                    dayItems[itemIndex].sales = salesValue;
-                }
-                setFullMonthSchedule(newSchedule);
-            };
+            // FIX LAG: Tối ưu state update bằng functional update không clone toàn bộ object
+            const handleSalesChange = useCallback((week, day, customerId, salesValue) => {
+                setFullMonthSchedule(prev => {
+                    const updatedWeekDayItems = prev[week][day].items.map(item => 
+                        item.id === customerId ? { ...item, sales: salesValue } : item
+                    );
+                    return {
+                        ...prev,
+                        [week]: {
+                            ...prev[week],
+                            [day]: { ...prev[week][day], items: updatedWeekDayItems }
+                        }
+                    };
+                });
+            }, []);
 
             const handleOptimizeRoute = (week, day) => {
-                if (!homeLocation) {
-                    setStatus({ type: 'error', text: 'Vui lòng thiết lập Vị trí Nhà trước khi tối ưu.' });
-                    return;
-                }
-                
+                if (!homeLocation) return setStatus({ type: 'error', text: 'Vui lòng thiết lập Vị trí Nhà trước.' });
                 const newSchedule = { ...fullMonthSchedule };
                 const dayItems = [...newSchedule[week][day].items];
-                
                 if (dayItems.length <= 1) return;
 
                 setStatus({ type: 'loading', text: 'Đang tối ưu lộ trình...' });
-                
                 setTimeout(() => {
                     let currentLoc = homeLocation;
-                    const optimized = [];
-                    const unlocated = []; 
+                    const optimized = []; const unlocated = []; 
                     
-                    // Tách khách có định vị và chưa có
                     dayItems.forEach(item => {
                         const loc = getCustomerLocation(item.id);
-                        if (loc) optimized.push({ ...item, _loc: loc });
-                        else unlocated.push(item);
+                        if (loc) optimized.push({ ...item, _loc: loc }); else unlocated.push(item);
                     });
 
-                    // Thuật toán: Điểm gần nhất tiếp theo
                     const finalOptimized = [];
                     while (optimized.length > 0) {
-                        optimized.sort((a, b) => {
-                            const distA = getDistanceFromLatLonInKm(currentLoc.lat, currentLoc.lng, a._loc.lat, a._loc.lng);
-                            const distB = getDistanceFromLatLonInKm(currentLoc.lat, currentLoc.lng, b._loc.lat, b._loc.lng);
-                            return distA - distB;
-                        });
+                        optimized.sort((a, b) => getDistanceFromLatLonInKm(currentLoc.lat, currentLoc.lng, a._loc.lat, a._loc.lng) - getDistanceFromLatLonInKm(currentLoc.lat, currentLoc.lng, b._loc.lat, b._loc.lng));
                         const nearest = optimized.shift();
-                        finalOptimized.push(nearest);
-                        currentLoc = nearest._loc; // Cập nhật vị trí hiện tại
+                        finalOptimized.push(nearest); currentLoc = nearest._loc; 
                     }
-                    
                     finalOptimized.forEach(item => delete item._loc);
 
-                    // Ghép lại: Khách có lộ trình đi trước, chưa có đi sau
                     newSchedule[week][day].items = [...finalOptimized, ...unlocated];
                     setFullMonthSchedule(newSchedule);
-                    setStatus({ type: 'success', text: `Đã tự động tối ưu tuyến ${newSchedule[week][day].day}!` });
+                    setStatus({ type: 'success', text: `Đã tự động tối ưu!` });
                 }, 300);
             };
 
-            const trongDiemCount = customers.filter(c => c.type === 'TRONG_DIEM').length;
-            const duyTriCount = customers.length - trongDiemCount;
-
-            const geoStats = {};
-            customers.forEach(c => {
-                const h = c.huyen || 'Khác';
-                geoStats[h] = (geoStats[h] || 0) + 1;
-            });
-            const geoArr = Object.entries(geoStats).sort((a,b) => b[1] - a[1]);
-
-            // 4. THUẬT TOÁN XẾP TUYẾN
             const buildSingleWeek = (isOddWeek) => {
                 const activeSubGroup = isOddWeek ? 1 : 2;
                 const activeCustomers = customers.filter(c => c.type === 'TRONG_DIEM' || c.subGroup === activeSubGroup).map(c => ({...c, sales: ''}));
@@ -342,46 +297,23 @@
                     T7: { day: 'Thứ 7', desc: 'Bảo trì tuyến Mỹ Tho / Châu Thành', location: 'Mỹ Tho / Châu Thành', limit: 10, items: [] },
                 };
 
-                weekSchedule.T3.items.push(...pull(grouped['Cái Bè'], 11));
-                if(weekSchedule.T3.items.length < 10) weekSchedule.T3.items.push(...pull(grouped['Cai Lậy'], 10 - weekSchedule.T3.items.length));
-                
-                weekSchedule.T6.items.push(...pull(grouped['Cái Bè'], 11));
-                if(weekSchedule.T6.items.length < 10) weekSchedule.T6.items.push(...pull(grouped['Cai Lậy'], 10 - weekSchedule.T6.items.length));
-
-                weekSchedule.T2.items.push(...pull(grouped['Cai Lậy'], 7));
-                weekSchedule.T2.items.push(...pull(grouped['Tân Phước'], 4));
-
-                weekSchedule.T5.items.push(...pull(grouped['Cai Lậy'], 7));
-                weekSchedule.T5.items.push(...pull(grouped['Tân Phước'], 4));
-
-                weekSchedule.T4.items.push(...pull(grouped['Châu Thành'], 7));
-                weekSchedule.T4.items.push(...pull(grouped['Mỹ Tho'], 4));
-
-                weekSchedule.T7.items.push(...pull(grouped['Mỹ Tho'], 6));
-                weekSchedule.T7.items.push(...pull(grouped['Châu Thành'], 4));
+                weekSchedule.T3.items.push(...pull(grouped['Cái Bè'], 11)); if(weekSchedule.T3.items.length < 10) weekSchedule.T3.items.push(...pull(grouped['Cai Lậy'], 10 - weekSchedule.T3.items.length));
+                weekSchedule.T6.items.push(...pull(grouped['Cái Bè'], 11)); if(weekSchedule.T6.items.length < 10) weekSchedule.T6.items.push(...pull(grouped['Cai Lậy'], 10 - weekSchedule.T6.items.length));
+                weekSchedule.T2.items.push(...pull(grouped['Cai Lậy'], 7)); weekSchedule.T2.items.push(...pull(grouped['Tân Phước'], 4));
+                weekSchedule.T5.items.push(...pull(grouped['Cai Lậy'], 7)); weekSchedule.T5.items.push(...pull(grouped['Tân Phước'], 4));
+                weekSchedule.T4.items.push(...pull(grouped['Châu Thành'], 7)); weekSchedule.T4.items.push(...pull(grouped['Mỹ Tho'], 4));
+                weekSchedule.T7.items.push(...pull(grouped['Mỹ Tho'], 6)); weekSchedule.T7.items.push(...pull(grouped['Châu Thành'], 4));
 
                 const leftovers = [...grouped['Mỹ Tho'], ...grouped['Châu Thành'], ...grouped['Tân Phước'], ...grouped['Cai Lậy'], ...grouped['Cái Bè'], ...grouped['Khác']];
-                const days = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
-                let dayIdx = 0;
-                
+                const days = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7']; let dayIdx = 0;
                 while (leftovers.length > 0) {
                     let placed = false;
                     for (let i = 0; i < days.length; i++) {
                         const d = days[(dayIdx + i) % days.length];
-                        if (weekSchedule[d].items.length < weekSchedule[d].limit) {
-                            weekSchedule[d].items.push(leftovers.shift());
-                            placed = true;
-                            dayIdx = (dayIdx + i + 1) % days.length;
-                            break;
-                        }
+                        if (weekSchedule[d].items.length < weekSchedule[d].limit) { weekSchedule[d].items.push(leftovers.shift()); placed = true; dayIdx = (dayIdx + i + 1) % days.length; break; }
                     }
                     if (!placed && leftovers.length > 0) {
-                        let minDay = days[0];
-                        for (let d of days) {
-                            if (weekSchedule[d].items.length < weekSchedule[minDay].items.length) {
-                                minDay = d;
-                            }
-                        }
+                        let minDay = days[0]; for (let d of days) if (weekSchedule[d].items.length < weekSchedule[minDay].items.length) minDay = d;
                         weekSchedule[minDay].items.push(leftovers.shift());
                     }
                 }
@@ -389,100 +321,131 @@
             };
 
             const executeRoutingForMonth = () => {
-                setStatus({ type: 'loading', text: 'Đang tổng hợp lộ trình cả tháng...' });
+                setStatus({ type: 'loading', text: 'Đang tổng hợp lộ trình...' });
                 setTimeout(() => {
-                    const monthPlan = {
-                        1: buildSingleWeek(true),
-                        2: buildSingleWeek(false),
-                        3: buildSingleWeek(true),
-                        4: buildSingleWeek(false)
-                    };
-                    setFullMonthSchedule(monthPlan);
-                    setActiveTab('schedule');
-                    setActiveWeekTab(1);
-                    setStatus({ type: 'success', text: `Đã tạo lộ trình Tháng ${selectedMonth}/${selectedYear} thành công.` });
+                    setFullMonthSchedule({ 1: buildSingleWeek(true), 2: buildSingleWeek(false), 3: buildSingleWeek(true), 4: buildSingleWeek(false) });
+                    setActiveTab('schedule'); setActiveWeekTab(1); setSearchTerm('');
+                    setStatus({ type: 'success', text: `Tạo lộ trình Tháng ${selectedMonth}/${selectedYear} thành công.` });
                 }, 500);
             };
 
-            // 5. KẾT XUẤT BÁO CÁO EXCEL & GỬI QUA ZALO
+            // KẾT XUẤT EXCEL 
             const exportToExcelReal = async () => {
                 if (!fullMonthSchedule || !window.ExcelJS) return setStatus({ type: 'error', text: 'Lỗi thư viện xuất Excel.' });
-
-                setStatus({ type: 'loading', text: 'Đang kết xuất báo cáo Quản trị (.xlsx)...' });
+                setStatus({ type: 'loading', text: 'Đang kết xuất báo cáo...' });
                 
                 try {
                     const wb = new window.ExcelJS.Workbook();
-                    wb.creator = 'MPE Routing System';
-                    const currentQuarter = Math.ceil(selectedMonth / 3);
+                    wb.creator = 'Routing System';
 
-                    const wsDash = wb.addWorksheet('Tổng Quan Tháng');
-                    wsDash.columns = [{ width: 3 }, { width: 35 }, { width: 20 }, { width: 30 }, { width: 25 }];
+                    // --- SHEET 1: DOANH SỐ SALE OUT (HIỂN THỊ CỘT NGÀY & DÒNG TỔNG CỘNG) ---
+                    const wsForm = wb.addWorksheet('DOANH SỐ SALE OUT', { views: [{ state: 'frozen', ySplit: 8 }] });
+                    
+                    const columns = [
+                        { width: 5 }, { width: 35 }, { width: 15 }, { width: 20 }, { width: 15 }, 
+                        { width: 15 }, { width: 20 }, { width: 15 }
+                    ];
+                    for(let i=1; i<=31; i++) columns.push({ width: 12 }); // 31 cột ngày
+                    wsForm.columns = columns;
 
-                    wsDash.mergeCells('B2:E2');
-                    const titleCell = wsDash.getCell('B2');
-                    titleCell.value = `PHÂN TÍCH ĐỊA BÀN & LỊCH TUYẾN - THÁNG ${selectedMonth}/${selectedYear}`;
-                    titleCell.font = { size: 14, bold: true, color: { argb: 'FF0047AB' } };
-                    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+                    wsForm.mergeCells('D2:K2');
+                    wsForm.getCell('D2').value = `BẢNG THEO DÕI DOANH SỐ KHÁCH HÀNG THÁNG ${selectedMonth}.${selectedYear}`;
+                    wsForm.getCell('D2').font = { bold: true, size: 14 };
 
-                    wsDash.mergeCells('B4:E4');
-                    wsDash.getCell('B4').value = '1. CẤU TRÚC KHÁCH HÀNG (Cố định toàn tháng)';
-                    wsDash.getCell('B4').font = { bold: true };
+                    wsForm.mergeCells('D3:F3'); wsForm.getCell('D3').value = 'NVKD : .....................';
+                    wsForm.mergeCells('D4:F4'); wsForm.getCell('D4').value = `CHỈ TIÊU QUÝ ${Math.ceil(selectedMonth / 3)}`; 
+                    wsForm.getCell('G4').value = targetQuarter; wsForm.getCell('G4').numFmt = '#,##0';
+                    wsForm.mergeCells('D5:F5'); wsForm.getCell('D5').value = 'THỰC HIỆN:'; 
+                    wsForm.mergeCells('D6:F6'); wsForm.getCell('D6').value = 'TỈ LỆ % :'; 
+                    wsForm.getCell('G6').value = { formula: 'G5/G4' }; wsForm.getCell('G6').numFmt = '0.00%';
 
-                    wsDash.addRow(['', 'Nhóm Khách Hàng', 'Số Lượng', 'Ghi Chú', '']);
-                    wsDash.lastRow.eachCell((c, i) => {
-                        if(i>1 && i<5) { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0047AB' } }; c.font = { color: { argb: 'FFFFFFFF' }, bold: true }; c.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; }
+                    // Headers
+                    const headerRow = wsForm.getRow(8);
+                    const headerValues = ['STT', 'TÊN KHÁCH HÀNG', 'SĐT', 'XÃ', 'HUYỆN', 'TỈNH', 'TÊN NPP', `DS TỔNG THÁNG ${selectedMonth}`];
+                    for(let i=1; i<=31; i++) headerValues.push(`Ngày ${i}`);
+                    headerRow.values = headerValues;
+                    
+                    headerRow.eachCell((cell) => {
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0047AB' } };
+                        cell.font = { color: { argb: 'FFFFFFFF' }, bold: true };
+                        cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
+                        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
                     });
 
-                    const addRowDash = (col2, col3, col4, col5 = '') => {
-                        wsDash.addRow(['', col2, col3, col4, col5]);
-                        const r = wsDash.lastRow;
-                        [2,3,4,5].forEach(i => r.getCell(i).border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} });
-                        return r;
-                    };
+                    // Tính doanh số phân bổ theo ngày
+                    const salesMap = {};
+                    customers.forEach(c => salesMap[c.id] = { c, days: Array(31).fill(0) });
 
-                    addRowDash('Khách Trọng Điểm', trongDiemCount, 'Thăm viếng mỗi tuần (4 lần/tháng)', '');
-                    addRowDash('Khách Duy Trì', duyTriCount, 'Xoay vòng luân phiên (2 lần/tháng)', '');
-                    wsDash.addRow([]); 
-
-                    wsDash.mergeCells(`B${wsDash.rowCount + 1}:E${wsDash.rowCount + 1}`);
-                    wsDash.lastRow.getCell(2).value = '2. TỔNG HỢP KIỂM SOÁT KPI & DOANH SỐ THỰC TẾ';
-                    wsDash.lastRow.getCell(2).font = { bold: true };
-
-                    wsDash.addRow(['', 'Tuần', 'Tổng Cửa Hàng Check-in', 'Đánh Giá KPI', 'Tổng Doanh Số (VNĐ)']);
-                    wsDash.lastRow.eachCell((c, i) => {
-                        if(i>1) { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE36C09' } }; c.font = { color: { argb: 'FFFFFFFF' }, bold: true }; c.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; }
-                    });
-
-                    let totalActiveMonth = 0;
-                    let totalSalesMonth = 0;
-
-                    [1, 2, 3, 4].forEach(weekNum => {
-                        let weekTotal = 0;
-                        let weekSales = 0;
-                        Object.keys(fullMonthSchedule[weekNum]).forEach(day => {
-                            fullMonthSchedule[weekNum][day].items.forEach(item => {
-                                weekTotal++;
-                                if (item.sales && !isNaN(item.sales)) weekSales += Number(item.sales);
-                            });
+                    let dayCounter = 0; 
+                    [1, 2, 3, 4].forEach(week => {
+                        ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'].forEach(dayKey => {
+                            if (fullMonthSchedule[week][dayKey]) {
+                                fullMonthSchedule[week][dayKey].items.forEach(item => {
+                                    if (item.sales && !isNaN(item.sales)) {
+                                        salesMap[item.id].days[dayCounter] += Number(item.sales);
+                                    }
+                                });
+                                dayCounter++;
+                            }
                         });
-                        totalActiveMonth += weekTotal;
-                        totalSalesMonth += weekSales;
-                        
-                        let evalText = 'Đạt Chuẩn'; let evalColor = 'FF008000';
-                        if (weekTotal < 48) { evalText = 'Chưa Tối Ưu (Dưới KPI)'; evalColor = 'FFFF0000'; }
-                        
-                        const r = addRowDash(`Tuần ${weekNum}`, weekTotal, evalText, weekSales);
-                        r.getCell(4).font = { bold: true, color: { argb: evalColor } };
-                        r.getCell(5).numFmt = '#,##0';
-                        r.getCell(5).font = { bold: true, color: { argb: 'FF0047AB' } };
                     });
 
-                    const sumRow = addRowDash('TỔNG CỘNG TRONG THÁNG', totalActiveMonth, '', totalSalesMonth);
-                    sumRow.font = { bold: true };
-                    sumRow.getCell(5).numFmt = '#,##0';
-                    sumRow.getCell(5).font = { bold: true, color: { argb: 'FFFF0000' } };
+                    let rowIndex = 9;
+                    let stt = 1;
+                    Object.values(salesMap).forEach((data) => {
+                        const r = wsForm.getRow(rowIndex);
+                        r.getCell(1).value = stt++;
+                        r.getCell(2).value = data.c.name;
+                        r.getCell(3).value = data.c.phone;
+                        r.getCell(4).value = data.c.xa;
+                        r.getCell(5).value = data.c.huyen;
+                        r.getCell(6).value = '';
+                        r.getCell(7).value = '';
+                        
+                        r.getCell(8).value = { formula: `SUM(I${rowIndex}:AM${rowIndex})` };
+                        r.getCell(8).numFmt = '#,##0'; r.getCell(8).font = { bold: true, color: { argb: 'FF0047AB' } };
+                        
+                        data.days.forEach((val, idx) => {
+                            if (val > 0) {
+                                r.getCell(9 + idx).value = val;
+                                r.getCell(9 + idx).numFmt = '#,##0';
+                            }
+                        });
 
-                    const wsData = wb.addWorksheet('Lịch Chi Tiết Từng Ngày', { views: [{ state: 'frozen', ySplit: 1 }] });
+                        r.eachCell({ includeEmpty: true }, (c, colNum) => { if(colNum <= 39) c.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }});
+                        rowIndex++;
+                    });
+
+                    // THÊM DÒNG TỔNG CỘNG THEO YÊU CẦU
+                    const totalRow = wsForm.getRow(rowIndex);
+                    totalRow.getCell(2).value = 'TỔNG CỘNG';
+                    totalRow.getCell(2).font = { bold: true, color: { argb: 'FFFF0000' } };
+                    
+                    // Tổng nguyên tháng (Cột H)
+                    totalRow.getCell(8).value = { formula: `SUM(H9:H${rowIndex-1})` };
+                    totalRow.getCell(8).numFmt = '#,##0'; 
+                    totalRow.getCell(8).font = { bold: true, color: { argb: 'FFFF0000' } };
+
+                    // Tổng cho từng ngày (Cột I -> AM)
+                    for(let i=1; i<=31; i++) {
+                        const colLetter = wsForm.getColumn(8 + i).letter;
+                        totalRow.getCell(8 + i).value = { formula: `SUM(${colLetter}9:${colLetter}${rowIndex-1})` };
+                        totalRow.getCell(8 + i).numFmt = '#,##0';
+                        totalRow.getCell(8 + i).font = { bold: true, color: { argb: 'FFFF0000' } };
+                    }
+                    
+                    totalRow.eachCell({ includeEmpty: true }, (c, colNum) => { 
+                        if(colNum <= 39) {
+                            c.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
+                            c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } }; // Highlight màu vàng
+                        }
+                    });
+
+                    wsForm.getCell('G5').value = { formula: `SUM(H9:H${rowIndex-1})` };
+                    wsForm.getCell('G5').numFmt = '#,##0'; wsForm.getCell('G5').font = { bold: true, color: { argb: 'FFFF0000' }};
+
+                    // --- SHEET 2: LỊCH CHI TIẾT TỪNG NGÀY ---
+                    const wsData = wb.addWorksheet('Lịch Chi Tiết', { views: [{ state: 'frozen', ySplit: 1 }] });
                     wsData.columns = [
                         { header: 'NĂM', key: 'year', width: 8 },
                         { header: 'QUÝ', key: 'quarter', width: 8 },
@@ -494,161 +457,137 @@
                         { header: 'ĐIỆN THOẠI', key: 'phone', width: 15 },
                         { header: 'XÃ/PHƯỜNG', key: 'xa', width: 25 },
                         { header: 'HUYỆN/THỊ', key: 'huyen', width: 20 },
-                        { header: 'PHÂN LOẠI', key: 'type', width: 20 },
-                        { header: 'DOANH SỐ (VNĐ)', key: 'sales', width: 18 }
+                        { header: 'PHÂN LOẠI', key: 'type', width: 15 },
+                        { header: 'DOANH SỐ', key: 'sales', width: 18 }
                     ];
 
                     wsData.getRow(1).eachCell((cell) => {
-                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0047AB' } };
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE36C09' } };
                         cell.font = { color: { argb: 'FFFFFFFF' }, bold: true };
-                        cell.alignment = { vertical: 'middle', horizontal: 'center' };
                         cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
+                        cell.alignment = { horizontal: 'center', vertical: 'middle' };
                     });
 
                     [1, 2, 3, 4].forEach(weekNum => {
-                        const weekData = fullMonthSchedule[weekNum];
-                        
-                        Object.keys(weekData).forEach(dayKey => {
-                            const dayData = weekData[dayKey];
-                            const bgColor = (weekNum % 2 !== 0) ? 'FFF2F2F2' : 'FFFFFFFF';
-
+                        Object.keys(fullMonthSchedule[weekNum]).forEach(dayKey => {
+                            const dayData = fullMonthSchedule[weekNum][dayKey];
                             dayData.items.forEach(c => {
                                 const row = wsData.addRow({
-                                    year: selectedYear,
-                                    quarter: `Quý ${currentQuarter}`,
-                                    month: `Tháng ${selectedMonth}`,
-                                    week: `Tuần ${weekNum}`,
-                                    day: dayData.day, 
-                                    target: dayData.desc, 
+                                    year: selectedYear, quarter: `Quý ${Math.ceil(selectedMonth / 3)}`, month: `Tháng ${selectedMonth}`,
+                                    week: `Tuần ${weekNum}`, day: dayData.day, target: dayData.desc, 
                                     name: c.name, phone: c.phone, xa: c.xa, huyen: c.huyen, 
-                                    type: c.type === 'TRONG_DIEM' ? 'Khách Trọng Điểm' : 'Khách Duy Trì',
+                                    type: c.type === 'TRONG_DIEM' ? 'Trọng Điểm' : 'Duy Trì',
                                     sales: c.sales && !isNaN(c.sales) ? Number(c.sales) : 0
                                 });
                                 row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
                                     cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
-                                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
-                                    if (colNumber === 11) { 
-                                        cell.font = { bold: true, color: { argb: c.type === 'TRONG_DIEM' ? 'FF0047AB' : 'FF595959' } }; 
-                                        cell.alignment = { horizontal: 'center', vertical: 'middle' };
-                                    }
-                                    if (colNumber === 12) {
-                                        cell.numFmt = '#,##0'; // Định dạng tiền tệ
-                                        cell.font = { bold: true, color: { argb: 'FF008000' } };
-                                    }
+                                    if (colNumber === 12) { cell.numFmt = '#,##0'; cell.font = { bold: true, color: { argb: 'FF008000' } }; }
                                 });
                             });
                         });
                     });
 
                     const buffer = await wb.xlsx.writeBuffer();
-                    const fileName = `LichTuyen_MPE_Thang${selectedMonth}_Nam${selectedYear}.xlsx`;
-                    const mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-                    const file = new File([buffer], fileName, { type: mimeType });
-
-                    try {
-                        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                            await navigator.share({
-                                files: [file],
-                                title: fileName,
-                                text: `Báo cáo Lịch Tuyến & Doanh Số MPE Tháng ${selectedMonth}/${selectedYear}`
-                            });
-                            setStatus({ type: 'success', text: 'Đã mở bảng gửi file qua Zalo.' });
-                            return; 
-                        }
-                    } catch (shareError) {
-                        console.log('Share error: ', shareError);
-                    }
-
-                    const blob = new Blob([buffer], { type: mimeType });
+                    const fileName = `LichTuyen_BaoCao_Thang${selectedMonth}_${selectedYear}.xlsx`;
+                    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
                     const url = window.URL.createObjectURL(blob);
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.download = fileName;
+                    const link = document.createElement('a'); link.href = url; link.download = fileName;
                     document.body.appendChild(link);
-                    setTimeout(() => {
-                        link.click();
-                        setTimeout(() => {
-                            document.body.removeChild(link);
-                            window.URL.revokeObjectURL(url);
-                            setStatus({ type: 'success', text: 'Xuất file Báo cáo Excel thành công.' });
-                        }, 300);
-                    }, 50);
+                    link.click(); document.body.removeChild(link); window.URL.revokeObjectURL(url);
+                    setStatus({ type: 'success', text: 'Xuất file thành công.' });
 
                 } catch (err) {
                     setStatus({ type: 'error', text: 'Lỗi khi tạo file: ' + err.message });
                 }
             };
 
+            const trongDiemCount = customers.filter(c => c.type === 'TRONG_DIEM').length;
+            const duyTriCount = customers.length - trongDiemCount;
+            const geoStats = {}; customers.forEach(c => { const h = c.huyen || 'Khác'; geoStats[h] = (geoStats[h] || 0) + 1; });
+            const geoArr = Object.entries(geoStats).sort((a,b) => b[1] - a[1]);
+
+            const getSalesData = () => {
+                let totalSales = 0; let trongDiemSales = 0;
+                if (fullMonthSchedule) {
+                    [1, 2, 3, 4].forEach(week => {
+                        Object.values(fullMonthSchedule[week]).forEach(day => {
+                            day.items.forEach(item => {
+                                const val = Number(item.sales) || 0;
+                                totalSales += val;
+                                if (item.type === 'TRONG_DIEM') trongDiemSales += val;
+                            });
+                        });
+                    });
+                }
+                return { totalSales, trongDiemSales };
+            };
+            const salesStats = getSalesData();
+
+            const filteredCustomers = customers.filter(c => 
+                c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                (c.phone && c.phone.includes(searchTerm)) || 
+                c.huyen.toLowerCase().includes(searchTerm.toLowerCase())
+            );
+
             return (
                 <div className="min-h-screen bg-slate-100 p-2 md:p-6 font-sans text-slate-800">
                     <div className="max-w-7xl mx-auto space-y-4">
                         
                         <div className="bg-white rounded-xl shadow border border-slate-200 overflow-hidden">
-                            <div className="p-4 flex flex-col md:flex-row justify-between items-center gap-4 border-b border-slate-100">
+                            <div className="p-4 flex flex-col md:flex-row justify-between items-center gap-4 border-b border-slate-100 relative">
                                 <div className="text-center md:text-left">
-                                    <h1 className="text-2xl font-black text-blue-900 tracking-tight uppercase">Hệ Thống Lộ Trình MPE</h1>
-                                    <p className="text-sm font-medium text-slate-500 mt-1">Quản trị Tuyến - Định Vị GPS - Báo Cáo Doanh Số</p>
+                                    <h1 className="text-2xl font-black text-blue-900 tracking-tight uppercase">Lịch Chăm Sóc Khách Hàng</h1>
+                                    <p className="text-sm font-medium text-slate-500 mt-1">Quản lý Tuyến & Doanh số</p>
                                 </div>
-                                <div className="flex bg-slate-100 p-1.5 rounded-lg overflow-x-auto w-full md:w-auto">
-                                    <button onClick={() => setActiveTab('upload')} className={`whitespace-nowrap px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'upload' ? 'bg-white shadow text-blue-800' : 'text-slate-500 hover:text-slate-700'}`}>1. Nạp File</button>
-                                    <button onClick={() => setActiveTab('categorize')} disabled={customers.length === 0} className={`whitespace-nowrap px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'categorize' ? 'bg-white shadow text-blue-800' : 'text-slate-500'} disabled:opacity-40`}>2. Phân Loại</button>
-                                    <button onClick={() => setActiveTab('analysis')} disabled={customers.length === 0} className={`whitespace-nowrap px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'analysis' ? 'bg-white shadow text-blue-800' : 'text-slate-500'} disabled:opacity-40`}>3. Phân Tích</button>
-                                    <button onClick={() => { if(!fullMonthSchedule) executeRoutingForMonth(); setActiveTab('schedule'); }} disabled={customers.length === 0} className={`whitespace-nowrap px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'schedule' ? 'bg-blue-600 shadow text-white' : 'text-slate-500'} disabled:opacity-40`}>4. Quản Trị Tháng</button>
-                                </div>
+
+                                {activeTab !== 'upload' && (
+                                    <button onClick={goBack} className="absolute top-4 right-4 md:static md:right-auto md:top-auto bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-bold transition flex items-center gap-2">
+                                        <i className="fa-solid fa-arrow-left"></i> <span className="hidden sm:inline">Quay lại</span>
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* UI TAB TRẢ VỀ NGUYÊN BẢN */}
+                            <div className="flex bg-slate-50 p-2 overflow-x-auto w-full border-b border-slate-100 justify-center md:justify-start">
+                                <button onClick={() => setActiveTab('upload')} className={`whitespace-nowrap px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'upload' ? 'bg-white shadow text-blue-800' : 'text-slate-500 hover:text-slate-700'}`}>1. Nạp File</button>
+                                <button onClick={() => setActiveTab('categorize')} disabled={customers.length === 0} className={`whitespace-nowrap px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'categorize' ? 'bg-white shadow text-blue-800' : 'text-slate-500'} disabled:opacity-40`}>2. Phân Loại</button>
+                                <button onClick={() => setActiveTab('analysis')} disabled={customers.length === 0} className={`whitespace-nowrap px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'analysis' ? 'bg-white shadow text-blue-800' : 'text-slate-500'} disabled:opacity-40`}>3. Phân Tích</button>
+                                <button onClick={() => { if(!fullMonthSchedule) executeRoutingForMonth(); setActiveTab('schedule'); }} disabled={customers.length === 0} className={`whitespace-nowrap px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'schedule' ? 'bg-blue-600 shadow text-white' : 'text-slate-500'} disabled:opacity-40`}>4. Lịch Chăm Sóc</button>
                             </div>
                             
-                            <div className={`px-4 py-2.5 text-[13px] font-bold flex items-center gap-2 ${
-                                status.type === 'error' ? 'bg-red-50 text-red-700' : 
-                                status.type === 'loading' ? 'bg-blue-50 text-blue-700' : 
-                                'bg-emerald-50 text-emerald-700'
-                            }`}>
-                                {status.type === 'error' ? <i className="fa-solid fa-circle-exclamation text-[16px]"></i> : 
-                                status.type === 'loading' ? <i className="fa-solid fa-rotate animate-spin text-[16px]"></i> : 
-                                <i className="fa-solid fa-circle-check text-[16px]"></i>}
+                            <div className={`px-4 py-2.5 text-[13px] font-bold flex items-center gap-2 ${status.type === 'error' ? 'bg-red-50 text-red-700' : status.type === 'loading' ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                                {status.type === 'error' ? <i className="fa-solid fa-circle-exclamation"></i> : status.type === 'loading' ? <i className="fa-solid fa-rotate animate-spin"></i> : <i className="fa-solid fa-circle-check"></i>}
                                 {status.text}
                             </div>
                         </div>
 
-                        {/* ================= TAB 1: NẠP FILE ================= */}
+                        {/* ================= TAB 1 ================= */}
                         {activeTab === 'upload' && (
                             <div className="bg-white rounded-xl p-6 md:p-10 shadow-sm border border-slate-200 text-center animate-in fade-in">
                                 {hasSavedData ? (
                                     <div className="space-y-4 max-w-md mx-auto">
-                                        <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-2 text-3xl">
-                                            <i className="fa-solid fa-clock-rotate-left"></i>
-                                        </div>
+                                        <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-2 text-3xl"><i className="fa-solid fa-clock-rotate-left"></i></div>
                                         <h2 className="text-2xl font-black text-slate-800">Phát hiện dữ liệu làm dở!</h2>
-                                        <p className="text-slate-500 text-sm mb-6">Bạn có muốn tiếp tục công việc đang làm trước đó không? (Không cần nạp lại file)</p>
-                                        
-                                        <button onClick={restoreData} className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-lg flex items-center justify-center gap-2 shadow-lg transition-transform active:scale-95">
-                                            <i className="fa-solid fa-play"></i> TIẾP TỤC LÀM VIỆC
-                                        </button>
-                                        
-                                        <button onClick={clearDataAndNew} className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm transition-colors mt-2">
-                                            Bỏ qua & Nạp file mới
-                                        </button>
+                                        <button onClick={restoreData} className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-lg shadow-lg transition-transform active:scale-95"><i className="fa-solid fa-play"></i> TIẾP TỤC LÀM VIỆC</button>
+                                        <button onClick={clearDataAndNew} className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm transition-colors mt-2">Bỏ qua & Nạp file mới</button>
                                     </div>
                                 ) : (
-                                    <div 
-                                        onClick={() => librariesReady && fileInputRef.current.click()}
-                                        className={`max-w-md mx-auto border-2 border-dashed rounded-2xl p-10 cursor-pointer transition-all ${librariesReady ? 'border-blue-400 bg-blue-50 hover:bg-blue-100' : 'border-slate-300 bg-slate-50 opacity-60'}`}
-                                    >
+                                    <div onClick={() => librariesReady && fileInputRef.current.click()} className={`max-w-xl mx-auto border-2 border-dashed rounded-2xl p-10 cursor-pointer transition-all ${librariesReady ? 'border-blue-400 bg-blue-50 hover:bg-blue-100' : 'border-slate-300 bg-slate-50 opacity-60'}`}>
                                         <i className="fa-solid fa-file-excel text-blue-600 text-[48px] mb-4"></i>
-                                        <h2 className="text-xl font-black text-blue-900 mb-2">CHẠM ĐỂ NẠP FILE .XLSX</h2>
-                                        <p className="text-blue-600/70 text-sm font-medium">Hệ thống sẽ tự động lọc dữ liệu trùng lặp</p>
+                                        <h2 className="text-xl font-black text-blue-900 mb-2">QUÉT CHỌN CÁC FILE .XLSX CẦN GỘP</h2>
+                                        <p className="text-blue-600/70 text-sm font-medium">Hệ thống tự động lọc bỏ các cột rác, chỉ giữ lại DS Khách hàng.</p>
                                     </div>
                                 )}
-                                
-                                <input type="file" accept=".xlsx, .xls" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+                                <input type="file" accept=".xlsx, .xls" multiple ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
                             </div>
                         )}
 
-                        {/* ================= TAB 2: PHÂN LOẠI ================= */}
+                        {/* ================= TAB 2 ================= */}
                         {activeTab === 'categorize' && customers.length > 0 && (
                             <div className="space-y-4 animate-in fade-in">
                                 {duplicateCount > 0 && (
                                     <div className="bg-blue-50 border border-blue-100 text-blue-800 px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-2">
-                                        <i className="fa-solid fa-circle-info text-[18px]"></i> Hệ thống đã chuẩn hóa và gộp chung {duplicateCount} cửa hàng bị ghi trùng lặp.
+                                        <i className="fa-solid fa-circle-info text-[18px]"></i> Đã gộp {duplicateCount} cửa hàng trùng lặp.
                                     </div>
                                 )}
 
@@ -656,43 +595,40 @@
                                     <div className="bg-white border-l-4 border-l-blue-600 rounded-xl p-5 shadow-sm">
                                         <div className="flex items-center gap-3 mb-3">
                                             <i className="fa-solid fa-bullseye text-blue-600 text-[28px]"></i>
-                                            <div>
-                                                <h3 className="font-black text-slate-800 text-lg">Khách Trọng Điểm</h3>
-                                                <p className="text-xs text-blue-600 font-bold uppercase">Thăm viếng mỗi tuần (4 Lần/Tháng)</p>
-                                            </div>
+                                            <div><h3 className="font-black text-slate-800 text-lg">Khách Trọng Điểm</h3><p className="text-xs text-blue-600 font-bold uppercase">4 Lần/Tháng</p></div>
                                         </div>
                                         <p className="text-xs text-slate-500 font-medium">👉 Click vào tên để đổi sang <span className="text-blue-600 font-bold">Màu Xanh</span>.</p>
                                     </div>
-
                                     <div className="bg-white border-l-4 border-l-slate-400 rounded-xl p-5 shadow-sm">
                                         <div className="flex items-center gap-3 mb-3">
                                             <i className="fa-solid fa-users text-slate-500 text-[28px]"></i>
-                                            <div>
-                                                <h3 className="font-black text-slate-800 text-lg">Khách Duy Trì</h3>
-                                                <p className="text-xs text-slate-500 font-bold uppercase">Xoay vòng luân phiên 2 lần/tháng</p>
-                                            </div>
+                                            <div><h3 className="font-black text-slate-800 text-lg">Khách Duy Trì</h3><p className="text-xs text-slate-500 font-bold uppercase">2 Lần/Tháng</p></div>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-                                    <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-4">
+                                    <div className="flex flex-col md:flex-row justify-between items-center mb-4 border-b border-slate-100 pb-4 gap-4">
                                         <div className="flex gap-4">
                                             <div className="text-center px-2"><div className="text-[11px] font-bold text-slate-400 uppercase">Tổng KH</div><div className="text-xl font-black text-slate-800">{customers.length}</div></div>
                                             <div className="w-px bg-slate-200"></div>
                                             <div className="text-center px-2"><div className="text-[11px] font-bold text-blue-500 uppercase">Trọng điểm</div><div className="text-xl font-black text-blue-600">{trongDiemCount}</div></div>
                                         </div>
-                                        <button onClick={() => setActiveTab('analysis')} className="bg-slate-800 hover:bg-slate-900 text-white px-5 py-2.5 rounded-lg font-bold flex items-center gap-2 transition-transform active:scale-95">
-                                            Tiếp Tục <i className="fa-solid fa-chevron-right text-[18px]"></i>
-                                        </button>
+                                        <div className="flex w-full md:w-auto gap-2">
+                                            <div className="relative flex-1 md:w-64">
+                                                <i className="fa-solid fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"></i>
+                                                <input type="text" placeholder="Tìm tên, SĐT, Huyện..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-slate-100 border border-slate-200 text-sm font-medium rounded-lg pl-9 pr-3 py-2 outline-none focus:border-blue-400" />
+                                            </div>
+                                            <button onClick={() => setActiveTab('analysis')} className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shrink-0">Tiếp <i className="fa-solid fa-chevron-right"></i></button>
+                                        </div>
                                     </div>
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                                        {customers.map((c) => (
+                                        {filteredCustomers.map((c) => (
                                             <div key={c.id} onClick={() => toggleType(c.id)} className={`p-4 rounded-xl border-2 flex justify-between items-center cursor-pointer transition-all hover:shadow-md ${c.type === 'TRONG_DIEM' ? 'border-blue-400 bg-blue-50/50' : 'border-slate-100 bg-white hover:border-slate-300'}`}>
                                                 <div className="truncate pr-3">
                                                     <div className={`font-bold text-[15px] truncate ${c.type === 'TRONG_DIEM' ? 'text-blue-900' : 'text-slate-700'}`}>{c.name}</div>
-                                                    <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-1 font-medium"><i className="fa-solid fa-location-dot text-[12px]"></i> {c.huyen}</div>
+                                                    <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-1 font-medium"><i className="fa-solid fa-location-dot"></i> {c.huyen}</div>
                                                 </div>
                                                 <div className={`shrink-0 text-[10px] uppercase font-bold px-2 py-1 rounded-md transition-colors ${c.type === 'TRONG_DIEM' ? 'bg-blue-600 text-white shadow' : 'bg-slate-100 text-slate-400'}`}>
                                                     {c.type === 'TRONG_DIEM' ? 'Trọng Điểm' : 'Duy Trì'}
@@ -704,47 +640,64 @@
                             </div>
                         )}
 
-                        {/* ================= TAB 3: PHÂN TÍCH ================= */}
+                        {/* ================= TAB 3: PHÂN TÍCH (NGUYÊN BẢN + BOX DOANH SỐ) ================= */}
                         {activeTab === 'analysis' && customers.length > 0 && (
                             <div className="space-y-6 animate-in fade-in">
-                                <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2"><i className="fa-solid fa-chart-pie text-blue-600"></i> Phân Tích Dữ Liệu Địa Bàn</h2>
                                 
+                                {/* Box Tổng hợp doanh số đơn giản, ngắn gọn */}
+                                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                                    <h3 className="font-bold text-slate-700 mb-4 text-lg">Tổng Hợp Doanh Số</h3>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div className="bg-slate-50 border border-slate-100 p-4 rounded-lg">
+                                            <div className="text-[11px] text-slate-500 font-bold uppercase mb-1">DS Trọng Điểm</div>
+                                            <div className="text-xl font-black text-blue-700">{formatVND(salesStats.trongDiemSales)} <span className="text-sm">đ</span></div>
+                                        </div>
+                                        <div className="bg-slate-50 border border-slate-100 p-4 rounded-lg">
+                                            <div className="text-[11px] text-slate-500 font-bold uppercase mb-1">Tổng DS Tháng</div>
+                                            <div className="text-xl font-black text-blue-700">{formatVND(salesStats.totalSales)} <span className="text-sm">đ</span></div>
+                                        </div>
+                                        <div className="bg-slate-50 border border-slate-100 p-4 rounded-lg flex flex-col justify-between">
+                                            <div className="flex justify-between items-center mb-1">
+                                                <div className="text-[11px] text-slate-500 font-bold uppercase">Tiến Độ Quý</div>
+                                                <input type="number" value={targetQuarter} onChange={e => setTargetQuarter(Number(e.target.value))} className="w-16 text-right text-[10px] bg-white border border-slate-200 rounded px-1 outline-none text-orange-600 font-bold" title="Chỉ tiêu Quý" />
+                                            </div>
+                                            <div className="text-xl font-black text-orange-600">{((salesStats.totalSales / targetQuarter) * 100 || 0).toFixed(1)}%</div>
+                                        </div>
+                                        <div className="bg-slate-50 border border-slate-100 p-4 rounded-lg flex flex-col justify-between">
+                                            <div className="flex justify-between items-center mb-1">
+                                                <div className="text-[11px] text-slate-500 font-bold uppercase">Tiến Độ Năm</div>
+                                                <input type="number" value={targetYear} onChange={e => setTargetYear(Number(e.target.value))} className="w-16 text-right text-[10px] bg-white border border-slate-200 rounded px-1 outline-none text-emerald-600 font-bold" title="Chỉ tiêu Năm" />
+                                            </div>
+                                            <div className="text-xl font-black text-emerald-600">{((salesStats.totalSales / targetYear) * 100 || 0).toFixed(1)}%</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Khối Phân Tích Nguyên Bản */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                                         <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2"><i className="fa-solid fa-users text-[18px]"></i> Tỉ Trọng Khách Hàng</h3>
                                         <div className="space-y-6">
                                             <div>
-                                                <div className="flex justify-between text-sm font-bold mb-2">
-                                                    <span className="text-blue-700">Khách Trọng Điểm</span>
-                                                    <span className="text-blue-700">{trongDiemCount} CH ({Math.round((trongDiemCount/customers.length)*100)}%)</span>
-                                                </div>
-                                                <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden shadow-inner">
-                                                    <div className="bg-blue-600 h-4 rounded-full transition-all duration-1000" style={{width: `${(trongDiemCount/customers.length)*100}%`}}></div>
-                                                </div>
+                                                <div className="flex justify-between text-sm font-bold mb-2"><span className="text-blue-700">Khách Trọng Điểm</span><span className="text-blue-700">{trongDiemCount} CH ({Math.round((trongDiemCount/customers.length)*100)}%)</span></div>
+                                                <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden"><div className="bg-blue-600 h-4 rounded-full" style={{width: `${(trongDiemCount/customers.length)*100}%`}}></div></div>
                                             </div>
                                             <div>
-                                                <div className="flex justify-between text-sm font-bold mb-2">
-                                                    <span className="text-slate-600">Khách Duy Trì</span>
-                                                    <span className="text-slate-600">{duyTriCount} CH ({Math.round((duyTriCount/customers.length)*100)}%)</span>
-                                                </div>
-                                                <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden shadow-inner">
-                                                    <div className="bg-slate-400 h-4 rounded-full transition-all duration-1000" style={{width: `${(duyTriCount/customers.length)*100}%`}}></div>
-                                                </div>
+                                                <div className="flex justify-between text-sm font-bold mb-2"><span className="text-slate-600">Khách Duy Trì</span><span className="text-slate-600">{duyTriCount} CH ({Math.round((duyTriCount/customers.length)*100)}%)</span></div>
+                                                <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden"><div className="bg-slate-400 h-4 rounded-full" style={{width: `${(duyTriCount/customers.length)*100}%`}}></div></div>
                                             </div>
                                         </div>
                                     </div>
 
                                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                                        <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2"><i className="fa-solid fa-location-dot text-[18px]"></i> Phân Bổ Mật Độ Huyện</h3>
-                                        <div className="space-y-4 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
+                                        <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2"><i className="fa-solid fa-location-dot text-[18px]"></i> Phân Bổ Mật Độ</h3>
+                                        <div className="space-y-4 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
                                             {geoArr.map(([huyen, count], idx) => {
                                                 const percent = Math.round((count/customers.length)*100);
                                                 return (
                                                     <div key={idx} className="flex items-center gap-4">
                                                         <div className="w-24 text-[13px] font-bold text-slate-700 truncate">{huyen}</div>
-                                                        <div className="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden shadow-inner">
-                                                            <div className="bg-emerald-500 h-3 rounded-full transition-all duration-1000" style={{width: `${percent}%`}}></div>
-                                                        </div>
+                                                        <div className="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden"><div className="bg-emerald-500 h-3 rounded-full" style={{width: `${percent}%`}}></div></div>
                                                         <div className="w-10 text-right text-sm font-black text-slate-800">{count}</div>
                                                     </div>
                                                 )
@@ -754,44 +707,30 @@
                                 </div>
 
                                 <div className="flex justify-center mt-8">
-                                    <button onClick={executeRoutingForMonth} className="bg-blue-600 hover:bg-blue-700 text-white px-10 py-4 rounded-xl font-black text-lg flex items-center gap-3 shadow-xl shadow-blue-200 transition-transform active:scale-95">
-                                        <i className="fa-solid fa-calendar-check text-[24px]"></i> XẾP LỘ TRÌNH 1 THÁNG (4 TUẦN)
-                                    </button>
+                                    <button onClick={executeRoutingForMonth} className="bg-blue-600 hover:bg-blue-700 text-white px-10 py-4 rounded-xl font-black text-lg flex items-center gap-3 shadow-xl active:scale-95"><i className="fa-solid fa-calendar-check text-[24px]"></i> XẾP LỘ TRÌNH 1 THÁNG (4 TUẦN)</button>
                                 </div>
                             </div>
                         )}
 
-                        {/* ================= TAB 4: QUẢN TRỊ LỊCH ================= */}
+                        {/* ================= TAB 4 ================= */}
                         {activeTab === 'schedule' && fullMonthSchedule && (
                             <div className="space-y-5 animate-in fade-in">
-                                
-                                {/* Header thiết lập Vị trí & Export */}
                                 <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between gap-4">
                                     <div className="flex-1">
                                         <div className="flex justify-between items-center bg-blue-50 border border-blue-200 p-3 rounded-lg">
                                             <div>
                                                 <h4 className="font-bold text-blue-900 text-sm flex items-center gap-1.5"><i className="fa-solid fa-house-chimney"></i> Điểm Xuất Phát (Nhà)</h4>
-                                                <p className="text-xs text-blue-700 mt-1">
-                                                    {homeLocation ? `Đã lưu định vị: ${homeLocation.lat.toFixed(4)}, ${homeLocation.lng.toFixed(4)}` : 'Chưa thiết lập (Dùng để tính km lộ trình)'}
-                                                </p>
+                                                <p className="text-xs text-blue-700 mt-1">{homeLocation ? 'Đã lưu định vị' : 'Chưa thiết lập (Dùng để tính km lộ trình)'}</p>
                                             </div>
                                             <div className="flex gap-2">
-                                                <button onClick={handleSetHomeLocation} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md text-xs font-bold transition">
-                                                    {homeLocation ? 'Cập nhật' : 'Định vị ngay'}
-                                                </button>
-                                                {homeLocation && (
-                                                    <button onClick={() => setHomeLocation(null)} className="bg-red-100 hover:bg-red-200 text-red-600 px-3 py-1.5 rounded-md text-xs font-bold transition">
-                                                        Xóa
-                                                    </button>
-                                                )}
+                                                <button onClick={handleSetHomeLocation} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md text-xs font-bold transition">{homeLocation ? 'Cập nhật' : 'Định vị ngay'}</button>
                                             </div>
                                         </div>
                                     </div>
                                     
                                     <div className="flex flex-col gap-2 md:w-1/3">
                                         <div className="flex items-center gap-2 bg-slate-100 border border-slate-300 px-3 py-2 rounded-lg font-bold text-slate-700 text-sm">
-                                            <i className="fa-solid fa-calendar-days text-blue-600"></i>
-                                            <span>Tháng</span>
+                                            <i className="fa-solid fa-calendar-days text-blue-600"></i><span>Tháng</span>
                                             <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="bg-transparent outline-none cursor-pointer text-blue-700">
                                                 {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => <option key={m} value={m}>{m}</option>)}
                                             </select>
@@ -801,29 +740,31 @@
                                             </select>
                                         </div>
                                         <button onClick={exportToExcelReal} className="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-bold flex items-center justify-center gap-2 shadow-sm transition-transform active:scale-95 text-sm">
-                                            <i className="fa-brands fa-whatsapp text-[16px]"></i> GỬI BÁO CÁO ZALO
+                                            <i className="fa-solid fa-file-excel text-[16px]"></i> XUẤT BÁO CÁO & LỊCH
                                         </button>
                                     </div>
                                 </div>
 
-                                {/* Tabs Tuần */}
+                                <div className="flex gap-2">
+                                    <div className="relative flex-1">
+                                        <i className="fa-solid fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"></i>
+                                        <input type="text" placeholder="Tìm tên khách hàng trong lịch..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-white border border-slate-300 text-sm font-medium rounded-lg pl-9 pr-3 py-2 outline-none focus:border-blue-400 shadow-sm" />
+                                    </div>
+                                </div>
+
                                 <div className="flex bg-slate-200 p-1.5 rounded-xl overflow-x-auto w-full border border-slate-300 shadow-inner">
                                     {[1, 2, 3, 4].map(week => (
-                                        <button 
-                                            key={week}
-                                            onClick={() => setActiveWeekTab(week)} 
-                                            className={`flex-1 whitespace-nowrap px-4 py-3 rounded-lg text-sm font-black transition-all ${activeWeekTab === week ? 'bg-white shadow-md text-blue-700 scale-[1.02]' : 'text-slate-500 hover:text-slate-700'}`}
-                                        >
-                                            <i className={`fa-solid ${activeWeekTab === week ? 'fa-folder-open' : 'fa-folder'} mr-2`}></i> 
-                                            TUẦN {week}
+                                        <button key={week} onClick={() => setActiveWeekTab(week)} className={`flex-1 whitespace-nowrap px-4 py-3 rounded-lg text-sm font-black transition-all ${activeWeekTab === week ? 'bg-white shadow-md text-blue-700 scale-[1.02]' : 'text-slate-500 hover:text-slate-700'}`}>
+                                            <i className={`fa-solid ${activeWeekTab === week ? 'fa-folder-open' : 'fa-folder'} mr-2`}></i> TUẦN {week}
                                         </button>
                                     ))}
                                 </div>
 
-                                {/* Cấu trúc Ngày */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 animate-in fade-in zoom-in-95 duration-200" key={activeWeekTab}>
                                     {Object.entries(fullMonthSchedule[activeWeekTab]).map(([key, data]) => {
                                         const count = data.items.length;
+                                        const displayedItems = data.items.filter(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()));
+                                        
                                         let kpiColor = 'bg-emerald-100 text-emerald-700 border-emerald-200';
                                         if (count < 8) kpiColor = 'bg-red-100 text-red-700 border-red-200';
 
@@ -832,13 +773,11 @@
                                                 <div className="bg-slate-50 p-4 border-b border-slate-200">
                                                     <div className="flex justify-between items-center mb-3">
                                                         <h3 className="font-black text-slate-800 text-xl">{data.day}</h3>
-                                                        <div className={`px-2.5 py-1.5 text-[11px] font-bold rounded-md border ${kpiColor}`}>
-                                                            {count}/12 Đại lý
-                                                        </div>
+                                                        <div className={`px-2.5 py-1.5 text-[11px] font-bold rounded-md border ${kpiColor}`}>{count}/12 Đại lý</div>
                                                     </div>
                                                     <div className="flex justify-between items-center">
                                                         <div className="text-[11px] text-orange-700 flex items-center gap-1.5 font-bold bg-orange-100 px-2 py-1 rounded-md border border-orange-200 w-max">
-                                                            <i className="fa-solid fa-truck"></i> {data.desc}
+                                                            <i className="fa-solid fa-truck text-[14px]"></i> {data.desc}
                                                         </div>
                                                         <button onClick={() => handleOptimizeRoute(activeWeekTab, key)} className="text-[10px] bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-2 py-1 rounded font-bold transition">
                                                             <i className="fa-solid fa-route"></i> Tối Ưu Lộ Trình
@@ -847,16 +786,16 @@
                                                 </div>
                                                 
                                                 <div className="p-3 flex-grow overflow-y-auto max-h-[450px] bg-slate-50/50 custom-scrollbar relative">
-                                                    {count === 0 ? (
-                                                        <div className="text-center text-slate-400 text-sm py-8 font-medium">Lịch chưa phân bổ.</div>
+                                                    {displayedItems.length === 0 ? (
+                                                        <div className="text-center text-slate-400 text-sm py-8 font-medium">Không tìm thấy khách hàng.</div>
                                                     ) : (
                                                         <ul className="space-y-3 pb-6">
-                                                            {data.items.map((c, index) => {
+                                                            {displayedItems.map((c, index) => {
                                                                 const loc = getCustomerLocation(c.id);
                                                                 const distance = loc && homeLocation ? getDistanceFromLatLonInKm(homeLocation.lat, homeLocation.lng, loc.lat, loc.lng) : '--';
                                                                 
                                                                 return (
-                                                                <li key={c.id} className="bg-white p-3.5 rounded-xl border border-slate-200 flex flex-col gap-2.5 shadow-sm hover:border-blue-300 transition-colors relative">
+                                                                <li key={c.id} className={`bg-white p-3.5 rounded-xl border flex flex-col gap-2.5 shadow-sm transition-colors relative ${searchTerm ? 'border-blue-400 bg-blue-50/30' : 'border-slate-200 hover:border-blue-300'}`}>
                                                                     <div className="absolute -left-2 -top-2 bg-slate-800 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold shadow">{index + 1}</div>
                                                                     <div className="flex justify-between items-start ml-2">
                                                                         <div className="flex-1 min-w-0">
@@ -869,39 +808,23 @@
                                                                     </div>
 
                                                                     <div className="flex flex-col gap-2 border-t border-slate-100 pt-2 ml-2">
-                                                                        {/* Doanh số */}
                                                                         <div className="flex items-center gap-2">
                                                                             <i className="fa-solid fa-sack-dollar text-green-600 w-4 text-center"></i>
-                                                                            <input 
-                                                                                type="number" 
-                                                                                placeholder="Nhập doanh số bán (VNĐ)..." 
-                                                                                value={c.sales || ''} 
-                                                                                onChange={(e) => handleSalesChange(activeWeekTab, key, c.id, e.target.value)}
-                                                                                className="text-xs font-bold text-green-700 border border-slate-200 bg-slate-50 rounded px-2 py-1.5 flex-1 outline-none focus:border-green-500 focus:bg-white transition"
-                                                                            />
+                                                                            <input type="number" placeholder="Nhập doanh số bán (VNĐ)..." value={c.sales || ''} onChange={(e) => handleSalesChange(activeWeekTab, key, c.id, e.target.value)} className="text-xs font-bold text-green-700 border border-slate-200 bg-slate-50 rounded px-2 py-1.5 flex-1 outline-none focus:border-green-500 focus:bg-white transition" />
                                                                         </div>
 
-                                                                        {/* GPS */}
                                                                         <div className="flex items-center justify-between mt-1">
                                                                             <div className="flex items-center gap-2 text-xs">
                                                                                 <i className="fa-solid fa-map-location-dot text-orange-500 w-4 text-center"></i>
                                                                                 {loc ? (
-                                                                                    <span className="text-slate-600 font-medium text-[11px]">
-                                                                                        Cách nhà: <span className="text-orange-600 font-bold">{distance} km</span>
-                                                                                    </span>
+                                                                                    <span className="text-slate-600 font-medium text-[11px]">Cách nhà: <span className="text-orange-600 font-bold">{distance} km</span></span>
                                                                                 ) : (
                                                                                     <span className="text-slate-400 italic text-[11px]">Chưa có tọa độ</span>
                                                                                 )}
                                                                             </div>
                                                                             <div className="flex gap-1.5">
-                                                                                <button onClick={() => handleSetCustomerLocation(c.id)} className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded border border-slate-200 font-bold transition">
-                                                                                    {loc ? 'Cập nhật' : 'Định vị GPS'}
-                                                                                </button>
-                                                                                {loc && (
-                                                                                    <button onClick={() => handleRemoveCustomerLocation(c.id)} className="text-[10px] bg-red-50 hover:bg-red-100 text-red-600 px-2 py-1 rounded border border-red-100 font-bold transition">
-                                                                                        Xóa
-                                                                                    </button>
-                                                                                )}
+                                                                                <button onClick={() => handleSetCustomerLocation(c.id)} className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded border border-slate-200 font-bold transition">{loc ? 'Cập nhật' : 'Định vị GPS'}</button>
+                                                                                {loc && <button onClick={() => handleRemoveCustomerLocation(c.id)} className="text-[10px] bg-red-50 hover:bg-red-100 text-red-600 px-2 py-1 rounded border border-red-100 font-bold transition">Xóa</button>}
                                                                             </div>
                                                                         </div>
                                                                     </div>
@@ -909,12 +832,6 @@
                                                                 );
                                                             })}
                                                         </ul>
-                                                    )}
-                                                    
-                                                    {(key === 'T4' || key === 'T7') && (
-                                                        <div className="mt-2 bg-blue-50/50 border border-blue-200 border-dashed rounded-lg p-3 flex items-center justify-center gap-2 text-blue-700 text-xs font-bold uppercase tracking-wider">
-                                                            <i className="fa-solid fa-location-arrow text-[14px]"></i> Công tác phát triển thị trường
-                                                        </div>
                                                     )}
                                                 </div>
                                             </div>
@@ -925,13 +842,8 @@
                         )}
                     </div>
                     <style dangerouslySetInnerHTML={{__html: `
-                        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
-                        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-                        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-                        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-                        /* Xóa mũi tên số lượng của input type=number */
-                        input[type=number]::-webkit-inner-spin-button, 
-                        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+                        .custom-scrollbar::-webkit-scrollbar { width: 5px; } .custom-scrollbar::-webkit-scrollbar-track { background: transparent; } .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; } .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+                        input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
                     `}} />
                 </div>
             );
@@ -942,5 +854,6 @@
     </script>
 </body>
 </html>
+
 
 
