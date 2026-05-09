@@ -387,22 +387,36 @@
                 }, 300);
             };
 
-            const isEligibleForWeek = (c, weekNum, totalWeeks) => {
+                        const isEligibleForWeek = (c, weekNum, totalWeeks) => {
                 const sg = c.subGroup || 1; 
                 if (c.type === 'TRONG_DIEM') {
-                    if (totalWeeks >= 5) {
+                    // Ma trận đi 3 lần/tháng cho tháng 6 tuần
+                    if (totalWeeks === 6) {
+                        const p6 = [[1, 3, 5], [2, 4, 6], [1, 4, 6], [2, 3, 5]];
+                        return p6[(sg - 1) % 4].includes(Number(weekNum));
+                    }
+                    // Ma trận đi 3 lần/tháng cho tháng 5 tuần
+                    if (totalWeeks === 5) {
                         const p5 = [[1, 3, 5], [1, 2, 4], [2, 4, 5], [1, 3, 4]];
                         return p5[(sg - 1) % 4].includes(Number(weekNum));
                     }
+                    // Ma trận đi 3 lần/tháng cho tháng 4 tuần
                     const p4 = [[1, 2, 3], [1, 2, 4], [1, 3, 4], [2, 3, 4]];
                     return p4[(sg - 1) % 4].includes(Number(weekNum));
                 } else if (c.type === 'DUY_TRI') {
-                    if (totalWeeks >= 5) {
+                    // Ma trận đi 2 lần/tháng cho tháng 6 tuần
+                    if (totalWeeks === 6) {
+                        const p6 = [[1, 4], [2, 5], [3, 6], [1, 5]];
+                        return p6[(sg - 1) % 4].includes(Number(weekNum));
+                    }
+                    // Ma trận đi 2 lần/tháng cho tháng 5 tuần
+                    if (totalWeeks === 5) {
                         const p5 = [[1, 4], [2, 5], [1, 3], [2, 4]];
                         return p5[(sg - 1) % 4].includes(Number(weekNum));
                     }
                     return (sg % 2 !== 0) ? (weekNum === 1 || weekNum === 3) : (weekNum === 2 || weekNum === 4);
                 } else if (c.type === 'TUONG_TAC') {
+                    // Tương tác đi 1 lần/tháng rải đều linh hoạt theo số tuần
                     const targetW = (sg % totalWeeks === 0) ? totalWeeks : (sg % totalWeeks);
                     return Number(weekNum) === targetW;
                 }
