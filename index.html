@@ -412,7 +412,7 @@
                 return false;
             };
 
-            const executeRoutingForMonth = () => {
+           const executeRoutingForMonth = () => {
                 setStatus({ type: 'loading', text: 'Đang tổng hợp lộ trình động theo lịch thực tế...' });
                 setTimeout(() => {
                     const cal = buildMonthCalendar(selectedYear, selectedMonth);
@@ -428,8 +428,10 @@
                         const daysInWeek = cal[wStr]; 
 
                         let activeCustomersPool = customers.filter(c => isEligibleForWeek(c, weekNum, totalWeeks)).map(c => ({...c, sales: ''}));
+                        const availableDays = Object.keys(daysInWeek);
 
-                        Object.keys(daysInWeek).forEach(dayKey => {
+                        // 1. Tạo rỗng các ngày trước
+                        availableDays.forEach(dayKey => {
                             newSchedule[weekNum][dayKey] = {
                                 day: `Thứ ${dayKey.replace('T', '')}`,
                                 desc: dayDescMap[dayKey] || 'Triển khai tuyến',
@@ -437,36 +439,42 @@
                                 items: [],
                                 date: daysInWeek[dayKey].date
                             };
-
-                            const targetDistricts = dayDistrictMap[dayKey] || ['all'];
-
-                            const pullCustomersForDay = (districts, maxToPull) => {
-                                let pulled = [];
-                                for (let i = activeCustomersPool.length - 1; i >= 0; i--) {
-                                    const c = activeCustomersPool[i]; const h = normalizeStr(c.huyen) || 'khac';
-                                    if (districts.includes('all') || districts.some(dist => h.includes(dist))) {
-                                        pulled.push(c); activeCustomersPool.splice(i, 1);
-                                        if (pulled.length >= maxToPull) break;
-                                    }
-                                }
-                                return pulled;
-                            };
-
-                            // Vét tuyến chuẩn trước 8 điểm
-                            newSchedule[weekNum][dayKey].items.push(...pullCustomersForDay(targetDistricts, 8));
-                            // Thiếu 8 thì bù bằng khách ngoài tuyến
-                            const needed1 = 8 - newSchedule[weekNum][dayKey].items.length;
-                            if (needed1 > 0) newSchedule[weekNum][dayKey].items.push(...pullCustomersForDay(['all'], needed1));
-                            
-                            // Cố gắng tiếp tục vét tuyến chuẩn cho đạt 12
-                            const needed2 = 12 - newSchedule[weekNum][dayKey].items.length;
-                            if (needed2 > 0) newSchedule[weekNum][dayKey].items.push(...pullCustomersForDay(targetDistricts, needed2));
                         });
 
-                        // Xử lý các khách hàng còn sót lại trong tuần
+                        const pullCustomersForDay = (districts, maxToPull) => {
+                            let pulled = [];
+                            for (let i = activeCustomersPool.length - 1; i >= 0; i--) {
+                                const c = activeCustomersPool[i]; const h = normalizeStr(c.huyen) || 'khac';
+                                if (districts.includes('all') || districts.some(dist => h.includes(dist))) {
+                                    pulled.push(c); activeCustomersPool.splice(i, 1);
+                                    if (pulled.length >= maxToPull) break;
+                                }
+                            }
+                            return pulled;
+                        };
+
+                        // 2. Vòng 1: Rải đều khách ĐÚNG TUYẾN lên mức 8 cho TẤT CẢ các ngày
+                        availableDays.forEach(dayKey => {
+                            const targetDistricts = dayDistrictMap[dayKey] || ['all'];
+                            newSchedule[weekNum][dayKey].items.push(...pullCustomersForDay(targetDistricts, 8));
+                        });
+
+                        // 3. Vòng 2: Rải đều khách BẤT KỲ để bù đủ mức 8 cho TẤT CẢ các ngày
+                        availableDays.forEach(dayKey => {
+                            const needed = 8 - newSchedule[weekNum][dayKey].items.length;
+                            if (needed > 0) newSchedule[weekNum][dayKey].items.push(...pullCustomersForDay(['all'], needed));
+                        });
+
+                        // 4. Vòng 3: Rải tiếp khách ĐÚNG TUYẾN kịch kim lên 12 cho TẤT CẢ các ngày
+                        availableDays.forEach(dayKey => {
+                            const targetDistricts = dayDistrictMap[dayKey] || ['all'];
+                            const currentCount = newSchedule[weekNum][dayKey].items.length;
+                            if (currentCount < 12) newSchedule[weekNum][dayKey].items.push(...pullCustomersForDay(targetDistricts, 12 - currentCount));
+                        });
+
+                        // 5. Rải lượng khách dư còn sót lại
                         while (activeCustomersPool.length > 0) {
                             const c = activeCustomersPool.shift(); 
-                            const availableDays = Object.keys(daysInWeek);
                             if(availableDays.length === 0) break;
                             
                             let minDay = availableDays[0]; 
@@ -487,10 +495,7 @@
                                         break; 
                                     }
                                 }
-                                // KHÓA CỨNG: Nếu mọi ngày đều đã chạm ngưỡng 12, lập tức ngắt bỏ, không dồi thêm
-                                if (!placed) {
-                                    break; 
-                                }
+                                if (!placed) break; 
                             }
                         }
                     });
