@@ -422,15 +422,19 @@
                     const dayDescMap = { 'T2': 'Triển khai tuyến Cai Lậy / Tân Phước', 'T3': 'Trọng điểm Cái Bè (Thúc đẩy doanh số)', 'T4': 'Triển khai Châu Thành / Mỹ Tho', 'T5': 'Triển khai tuyến Cai Lậy / Tân Phước', 'T6': 'Trọng điểm Cái Bè (Thúc đẩy doanh số)', 'T7': 'Bảo trì tuyến Mỹ Tho / Châu Thành' };
                     const dayDistrictMap = { 'T2': ['cai lay', 'tan phuoc'], 'T3': ['cai be', 'cai lay'], 'T4': ['chau thanh', 'my tho'], 'T5': ['cai lay', 'tan phuoc'], 'T6': ['cai be', 'cai lay'], 'T7': ['my tho', 'chau thanh'] };
 
+                    let carryOverPool = []; // MẢNG HỨNG KHÁCH BỊ TRÀN DO TUẦN THIẾU NGÀY
+
                     Object.keys(cal).forEach(wStr => {
                         const weekNum = parseInt(wStr);
                         newSchedule[weekNum] = {};
                         const daysInWeek = cal[wStr]; 
 
-                        let activeCustomersPool = customers.filter(c => isEligibleForWeek(c, weekNum, totalWeeks)).map(c => ({...c, sales: ''}));
+                        // Thuật toán Thác Nước: Lấy KH tuần này + Hứng trọn KH bị tràn từ tuần trước
+                        let activeCustomersPool = [...carryOverPool, ...customers.filter(c => isEligibleForWeek(c, weekNum, totalWeeks)).map(c => ({...c, sales: ''}))];
+                        carryOverPool = []; // Đổ xong thì reset để hứng tiếp cho tuần sau nếu lại quá tải
+                        
                         const availableDays = Object.keys(daysInWeek);
 
-                        // 1. Tạo rỗng các ngày trước
                         availableDays.forEach(dayKey => {
                             newSchedule[weekNum][dayKey] = {
                                 day: `Thứ ${dayKey.replace('T', '')}`,
@@ -453,26 +457,23 @@
                             return pulled;
                         };
 
-                        // 2. Vòng 1: Rải đều khách ĐÚNG TUYẾN lên mức 8 cho TẤT CẢ các ngày
                         availableDays.forEach(dayKey => {
                             const targetDistricts = dayDistrictMap[dayKey] || ['all'];
                             newSchedule[weekNum][dayKey].items.push(...pullCustomersForDay(targetDistricts, 8));
                         });
 
-                        // 3. Vòng 2: Rải đều khách BẤT KỲ để bù đủ mức 8 cho TẤT CẢ các ngày
                         availableDays.forEach(dayKey => {
                             const needed = 8 - newSchedule[weekNum][dayKey].items.length;
                             if (needed > 0) newSchedule[weekNum][dayKey].items.push(...pullCustomersForDay(['all'], needed));
                         });
 
-                        // 4. Vòng 3: Rải tiếp khách ĐÚNG TUYẾN kịch kim lên 12 cho TẤT CẢ các ngày
                         availableDays.forEach(dayKey => {
                             const targetDistricts = dayDistrictMap[dayKey] || ['all'];
                             const currentCount = newSchedule[weekNum][dayKey].items.length;
                             if (currentCount < 12) newSchedule[weekNum][dayKey].items.push(...pullCustomersForDay(targetDistricts, 12 - currentCount));
                         });
 
-                        // 5. Rải lượng khách dư còn sót lại
+                        // VÒNG 5: VÉT KHÁCH VÀ BẢO TOÀN DỮ LIỆU
                         while (activeCustomersPool.length > 0) {
                             const c = activeCustomersPool.shift(); 
                             if(availableDays.length === 0) break;
@@ -495,17 +496,35 @@
                                         break; 
                                     }
                                 }
-                                if (!placed) break; 
+                                // TUYỆT ĐỐI KHÔNG BREAK. Nếu tuần này đã full 12, cất khách dư đi chờ tuần sau rải.
+                                if (!placed) {
+                                    carryOverPool.push(c); 
+                                } 
                             }
                         }
                     });
 
+                    // VÒNG 6: XỬ LÝ VÉT CẠN THÁC NƯỚC (NẾU ĐẾN TUẦN CUỐI CÙNG VẪN CÒN TRÀN)
+                    if (carryOverPool.length > 0) {
+                        const lastWeek = Object.keys(cal).pop();
+                        const availableDays = Object.keys(newSchedule[lastWeek]);
+                        while(carryOverPool.length > 0) {
+                            const c = carryOverPool.shift();
+                            if(availableDays.length === 0) break;
+                            let minDay = availableDays[0]; 
+                            for (let d of availableDays) { 
+                                if (newSchedule[lastWeek][d].items.length < newSchedule[lastWeek][minDay].items.length) { minDay = d; } 
+                            }
+                            // Ép rải nốt vào tuần cuối để 100% không bị mất khách nào
+                            newSchedule[lastWeek][minDay].items.push(c);
+                        }
+                    }
+
                     setFullMonthSchedule(newSchedule);
                     setActiveTab('schedule'); setActiveWeekTab(1); setSearchTerm('');
-                    setStatus({ type: 'success', text: `Đã tạo kín ${totalWeeks} vòng theo Lịch tháng ${selectedMonth}/${selectedYear}.` });
+                    setStatus({ type: 'success', text: `Đã tự động cân bằng toàn bộ Lộ trình Tháng ${selectedMonth}/${selectedYear}.` });
                 }, 500);
             };
-
             const getSalesData = () => {
                 let currentMonthSales = 0; let currentQuarterManualSales = 0; let yearManualSales = 0; 
                 let trongDiemSales = 0, duyTriSales = 0, tuongTacSales = 0;
