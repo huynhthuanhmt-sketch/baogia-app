@@ -26,7 +26,7 @@
             useEffect(() => { setVal(initialValue || ''); }, [initialValue]);
             const handleBlur = () => { if (val !== initialValue) onSave(val); };
             return (
-                <input type="number" placeholder="Nhập DS..." value={val} onChange={(e) => setVal(e.target.value)} onBlur={handleBlur}
+                <input type="number" placeholder="Nhập DS (VNĐ)..." value={val} onChange={(e) => setVal(e.target.value)} onBlur={handleBlur}
                     className="text-xs font-bold text-green-700 border border-slate-200 bg-slate-50 rounded px-2 py-1.5 flex-1 outline-none focus:border-green-500 focus:bg-white transition" 
                 />
             );
@@ -35,7 +35,7 @@
         const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
             const R = 6371; const dLat = (lat2 - lat1) * (Math.PI / 180); const dLon = (lon2 - lon1) * (Math.PI / 180);
             const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); return (R * c).toFixed(1);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); return Number((R * c).toFixed(1));
         };
 
         const formatVND = (amount) => new Intl.NumberFormat('vi-VN').format(amount || 0);
@@ -49,6 +49,30 @@
             if (val === undefined || val === null || val === '') return 0;
             const strVal = String(val).replace(/[^0-9]/g, '');
             return strVal ? Number(strVal) : 0;
+        };
+
+        // ĐỘNG CƠ LỊCH VẠN NIÊN LINH HOẠT - Quét thực tế theo từng tháng
+        const buildMonthCalendar = (year, month) => {
+            const weeks = {};
+            let weekNum = 1;
+            const daysInMonth = new Date(year, month, 0).getDate();
+
+            for (let d = 1; d <= daysInMonth; d++) {
+                const date = new Date(year, month - 1, d);
+                const dayOfWeek = date.getDay(); // 0 is Sun
+
+                if (dayOfWeek !== 0) { // Mon-Sat
+                    const dayKeys = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+                    const dayStr = dayKeys[dayOfWeek];
+                    if (!weeks[weekNum]) weeks[weekNum] = {};
+                    weeks[weekNum][dayStr] = { date: d };
+                }
+
+                if (dayOfWeek === 0 && d !== daysInMonth) {
+                    if (weeks[weekNum]) weekNum++; // Chuyển tuần nếu tuần trước có ngày làm việc
+                }
+            }
+            return weeks;
         };
 
         function App() {
@@ -70,9 +94,6 @@
             const [expandedCustomer, setExpandedCustomer] = useState(null);
             const [customerToDelete, setCustomerToDelete] = useState(null);
 
-            const [editingInfoId, setEditingInfoId] = useState(null);
-            const [editFormData, setEditFormData] = useState({ name: '', phone: '', xa: '', huyen: '' });
-
             const [activeTab, setActiveTab] = useState('upload'); 
             const [status, setStatus] = useState({ type: 'loading', text: 'Đang khởi động hệ thống...' });
             const [librariesReady, setLibrariesReady] = useState(false);
@@ -90,7 +111,7 @@
                     loadScript("https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js")
                 ]).then(() => {
                     setLibrariesReady(true);
-                    window.localforage.getItem('routing_data_pro_v5').then(data => {
+                    window.localforage.getItem('routing_data_pro_v6').then(data => {
                         if(data && data.customers && data.customers.length > 0) { setHasSavedData(true); setStatus({ type: 'success', text: 'Phát hiện phiên làm việc cũ.' }); } 
                         else { setStatus({ type: 'success', text: 'Hệ thống đã sẵn sàng.' }); }
                     });
@@ -100,7 +121,7 @@
             useEffect(() => {
                 if (librariesReady && customers.length > 0) {
                     const timeoutId = setTimeout(() => {
-                        window.localforage.setItem('routing_data_pro_v5', { customers, fullMonthSchedule, selectedMonth, selectedYear, homeLocation, targetQuarter, targetYear });
+                        window.localforage.setItem('routing_data_pro_v6', { customers, fullMonthSchedule, selectedMonth, selectedYear, homeLocation, targetQuarter, targetYear });
                         setHasSavedData(true);
                     }, 500);
                     return () => clearTimeout(timeoutId);
@@ -109,7 +130,7 @@
 
             const restoreData = () => {
                 setStatus({ type: 'loading', text: 'Đang khôi phục dữ liệu...' });
-                window.localforage.getItem('routing_data_pro_v5').then(data => {
+                window.localforage.getItem('routing_data_pro_v6').then(data => {
                     if(data) {
                         setCustomers(data.customers || []); setFullMonthSchedule(data.fullMonthSchedule || null); setSelectedMonth(data.selectedMonth || selectedMonth); setSelectedYear(data.selectedYear || selectedYear); setHomeLocation(data.homeLocation || null);
                         if(data.targetQuarter) setTargetQuarter(data.targetQuarter); if(data.targetYear) setTargetYear(data.targetYear);
@@ -118,21 +139,13 @@
                 });
             };
 
-            const clearDataAndNew = () => { window.localforage.removeItem('routing_data_pro_v5'); setHasSavedData(false); setCustomers([]); setFullMonthSchedule(null); setHomeLocation(null); if (fileInputRef.current) fileInputRef.current.click(); };
+            const clearDataAndNew = () => { window.localforage.removeItem('routing_data_pro_v6'); setHasSavedData(false); setCustomers([]); setFullMonthSchedule(null); setHomeLocation(null); if (fileInputRef.current) fileInputRef.current.click(); };
             const goBack = () => { setSearchTerm(''); if (activeTab === 'schedule') setActiveTab('analysis'); else if (activeTab === 'analysis') setActiveTab('categorize'); else if (activeTab === 'categorize') setActiveTab('upload'); };
 
-            const processSingleSheetData = (data, sysYear) => {
+            const processSingleSheetData = (data) => {
                 let parsed = []; let target = 0; let hasRestoredSales = false;
                 let headerIdx = -1; let sttIdx = -1, nameIdx = -1, phoneIdx = -1, xaIdx = -1, huyenIdx = -1;
                 let monthIndices = {}; let dayIndices = {}; let dailyStartIdx = -1;
-                let fileYear = sysYear;
-
-                for (let i = 0; i < Math.min(data.length, 15); i++) {
-                    if (!data[i]) continue;
-                    const rowStr = data[i].join(' ').toLowerCase();
-                    const yearMatch = rowStr.match(/năm\s+(\d{4})/);
-                    if (yearMatch) { fileYear = parseInt(yearMatch[1], 10); break; }
-                }
 
                 for (let i = 0; i < Math.min(data.length, 30); i++) {
                     const row = data[i]; if (!row) continue;
@@ -154,18 +167,24 @@
                     }
                 }
 
-                if (headerIdx === -1 || nameIdx === -1) return { parsed, target, hasRestoredSales, isOldYear: false };
+                if (headerIdx === -1 || nameIdx === -1) return { parsed, target, hasRestoredSales };
 
                 for (let i = headerIdx; i <= Math.min(headerIdx + 2, data.length - 1); i++) {
                     const row = data[i]; if (!row) continue;
                     row.forEach((cell, idx) => {
                         if (cell === undefined || cell === null) return;
                         const strLower = String(cell).toLowerCase().trim();
+                        
                         for(let m=1; m<=12; m++) {
-                            if (new RegExp(`(?:th[aá]ng|t)\\s*0?${m}(?:\\s*[.\\/-]\\s*(?:20)?\\d{2,4}|\\s+n[aă]m\\s+(?:20)?\\d{2,4}|$)`, 'i').test(strLower)) monthIndices[m] = idx;
+                            const monthRegex = new RegExp(`(?:th[aá]ng|t)\\s*0?${m}(?:\\s*[.\\/-]\\s*(?:20)?\\d{2,4}|\\s+n[aă]m\\s+(?:20)?\\d{2,4}|$)`, 'i');
+                            if (monthRegex.test(strLower)) monthIndices[m] = idx;
                         }
+                        
                         for(let d=1; d<=31; d++) {
-                            if (new RegExp(`ng[aà]y\\s*0?${d}$`, 'i').test(strLower) || ((strLower === `${d}` || strLower === `0${d}`) && idx > 10)) dayIndices[d] = idx;
+                            const dayRegex = new RegExp(`ng[aà]y\\s*0?${d}$`, 'i');
+                            if (dayRegex.test(strLower) || ((strLower === `${d}` || strLower === `0${d}`) && idx > 10)) {
+                                dayIndices[d] = idx;
+                            }
                         }
                     });
                 }
@@ -176,14 +195,18 @@
 
                 for (let i = 0; i < headerIdx; i++) {
                     const row = data[i]; if (!row) continue;
-                    if (row.map(c => normalizeStr(c)).join(' ').includes('chi tieu')) {
+                    const rowStr = row.map(c => normalizeStr(c)).join(' ');
+                    if (rowStr.includes('chi tieu')) {
                         const nums = row.map(c => extractNumber(c)).filter(n => n > 1000);
-                        if (nums.length > 0) target = Math.max(...nums);
+                        if (nums.length > 0) {
+                            target = Math.max(...nums);
+                        }
                     }
                 }
 
                 for (let i = headerIdx + 1; i < data.length; i++) {
                     const row = data[i]; if (!row || row.length === 0) continue;
+                    
                     const rawName = row[nameIdx];
                     if (rawName === undefined || rawName === null || String(rawName).trim() === '') continue;
                     
@@ -197,6 +220,7 @@
 
                     let xa = xaIdx !== -1 ? String(row[xaIdx] || '').trim() : '';
                     if (xa === 'NaN' || xa === 'undefined' || xa === 'null') xa = '';
+                    
                     let huyen = huyenIdx !== -1 ? String(row[huyenIdx] || '').trim() : '';
                     if (huyen === 'NaN' || huyen === 'undefined' || huyen === 'null') huyen = '';
 
@@ -204,18 +228,17 @@
                     let currentDailySales = {};
                     let rowHasData = false;
 
-                    if (fileYear === sysYear) {
-                        for (let m = 1; m <= 12; m++) {
-                            if (monthIndices[m] !== undefined) {
-                                const val = extractNumber(row[monthIndices[m]]);
-                                if (val > 0) { currentSales[m] = val; rowHasData = true; }
-                            }
+                    for (let m = 1; m <= 12; m++) {
+                        if (monthIndices[m] !== undefined) {
+                            const val = extractNumber(row[monthIndices[m]]);
+                            if (val > 0) { currentSales[m] = val; rowHasData = true; }
                         }
-                        for (let d = 1; d <= 31; d++) {
-                            if (dayIndices[d] !== undefined) {
-                                const val = extractNumber(row[dayIndices[d]]);
-                                if (val > 0) { currentDailySales[d] = val; rowHasData = true; }
-                            }
+                    }
+
+                    for (let d = 1; d <= 31; d++) {
+                        if (dayIndices[d] !== undefined) {
+                            const val = extractNumber(row[dayIndices[d]]);
+                            if (val > 0) { currentDailySales[d] = val; rowHasData = true; }
                         }
                     }
 
@@ -223,10 +246,10 @@
                     parsed.push({ name, phone, xa, huyen, monthlySales: currentSales, dailySales: currentDailySales });
                 }
 
-                return { parsed, target, hasRestoredSales, isOldYear: fileYear !== sysYear };
+                return { parsed, target, hasRestoredSales };
             };
 
-            const mergeIntoState = (newParsedList, foundTarget, hasRestoredSales, isOldYear) => {
+            const mergeIntoState = (newParsedList, foundTarget, hasRestoredSales) => {
                 const customerMap = new Map(); let idCounter = 1;
                 const oldCustomers = [...customers];
                 const cleanName = (name) => String(name).toLowerCase().replace(/\s+/g, '').trim();
@@ -240,6 +263,7 @@
                         if (!existing.phone && item.phone) existing.phone = item.phone;
                         if (!existing.xa && item.xa) existing.xa = item.xa;
                         if (!existing.huyen && item.huyen) existing.huyen = item.huyen;
+                        
                         for (let m = 1; m <= 12; m++) { if (item.monthlySales[m] > 0) existing.monthlySales[m] = item.monthlySales[m]; }
                         for (let d = 1; d <= 31; d++) { if (item.dailySales[d] > 0) existing.dailySales[d] = item.dailySales[d]; }
                     } else {
@@ -257,8 +281,7 @@
                 if (foundTarget > 0) setTargetQuarter(foundTarget);
 
                 let successMsg = `Nạp thành công ${finalParsed.length} KH từ file.`;
-                if (isOldYear) successMsg += " (Phát hiện file NĂM CŨ, tự động chỉ gộp Tên KH, loại bỏ doanh số rác!).";
-                else if (hasRestoredSales) successMsg += " (Đã quét và phục hồi Doanh số!)";
+                if (hasRestoredSales) successMsg += " (Đã quét và phục hồi Doanh số!)";
                 
                 setActiveTab('categorize'); setStatus({ type: 'success', text: successMsg }); setFullMonthSchedule(null);
             };
@@ -266,13 +289,12 @@
             const handleFileUpload = async (event) => {
                 const files = event.target.files; if (!files || files.length === 0) return;
                 if (!librariesReady || !window.XLSX) return setStatus({ type: 'error', text: 'Thư viện chưa sẵn sàng.' });
-                setStatus({ type: 'loading', text: 'Đang đọc phân tích định dạng...' });
+                setStatus({ type: 'loading', text: 'Đang đọc và phục hồi doanh số...' });
                 
                 try {
                     let allParsedCustomers = [];
                     let hasRestoredAnySales = false;
                     let foundTarget = 0;
-                    let detectedOldYear = false;
 
                     for (let i = 0; i < files.length; i++) {
                         const buffer = await files[i].arrayBuffer(); 
@@ -282,12 +304,11 @@
                             const worksheet = workbook.Sheets[sName]; 
                             const jsonData = window.XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
                             
-                            const { parsed, target, hasRestoredSales, isOldYear } = processSingleSheetData(jsonData, selectedYear);
+                            const { parsed, target, hasRestoredSales } = processSingleSheetData(jsonData);
                             if (parsed.length > 0) {
                                 allParsedCustomers = allParsedCustomers.concat(parsed);
                                 if (target > foundTarget) foundTarget = target;
                                 if (hasRestoredSales) hasRestoredAnySales = true;
-                                if (isOldYear) detectedOldYear = true;
                             }
                         }
                     }
@@ -295,7 +316,7 @@
                     if (allParsedCustomers.length === 0) {
                         setStatus({ type: 'error', text: 'Không tìm thấy bảng "TÊN KHÁCH HÀNG" trong file.' });
                     } else {
-                        mergeIntoState(allParsedCustomers, foundTarget, hasRestoredAnySales, detectedOldYear);
+                        mergeIntoState(allParsedCustomers, foundTarget, hasRestoredAnySales);
                     }
                 } catch (err) { setStatus({ type: 'error', text: 'Lỗi đọc file: ' + err.message }); }
                 if (fileInputRef.current) fileInputRef.current.value = '';
@@ -311,30 +332,20 @@
                 if(customerToDelete) { setCustomers(prev => prev.filter(c => c.id !== customerToDelete.id)); setFullMonthSchedule(null); setCustomerToDelete(null); }
             };
 
-            const saveEditInfo = (id) => {
-                setCustomers(prev => prev.map(c => c.id === id ? { ...c, ...editFormData } : c));
-                setEditingInfoId(null);
-                setFullMonthSchedule(null);
-                setStatus({ type: 'success', text: 'Đã cập nhật thông tin khách hàng.' });
-            };
-
             const toggleType = (id) => { 
                 setCustomers(prev => prev.map(c => {
                     if (c.id === id) {
-                        let newType = 'DUY_TRI';
-                        if (c.type === 'DUY_TRI') newType = 'TUONG_TAC';
-                        else if (c.type === 'TUONG_TAC') newType = 'TRONG_DIEM';
-                        return { ...c, type: newType };
+                        let nextType = 'DUY_TRI';
+                        if (c.type === 'DUY_TRI') nextType = 'TUONG_TAC';
+                        else if (c.type === 'TUONG_TAC') nextType = 'TRONG_DIEM';
+                        return { ...c, type: nextType };
                     }
                     return c;
                 })); 
                 setFullMonthSchedule(null); 
             };
-
-            const handleMonthlySalesChange = (id, month, val) => { 
-                const numVal = Number(val) || 0;
-                setCustomers(prev => prev.map(c => c.id === id ? { ...c, monthlySales: {...c.monthlySales, [month]: numVal} } : c)); 
-            };
+            
+            const handleMonthlySalesChange = (id, month, val) => { setCustomers(prev => prev.map(c => c.id === id ? { ...c, monthlySales: {...c.monthlySales, [month]: val} } : c)); };
 
             const handleSetHomeLocation = () => {
                 if (!navigator.geolocation) return setStatus({ type: 'error', text: 'Trình duyệt không hỗ trợ định vị.' });
@@ -376,79 +387,110 @@
                 }, 300);
             };
 
-            const buildSingleWeek = (weekNum) => {
-                let activeCustomersPool = customers.filter(c => {
-                    if (c.type === 'TRONG_DIEM') return weekNum !== 4; 
-                    if (c.type === 'TUONG_TAC') return c.subGroup === weekNum; 
-                    return (weekNum % 2) === (c.subGroup % 2); 
-                }).map(c => ({...c, sales: ''}));
-                
-                const weekSchedule = {
-                    T2: { day: 'Thứ 2', desc: 'Triển khai tuyến Cai Lậy / Tân Phước', limit: 12, items: [] },
-                    T3: { day: 'Thứ 3', desc: 'Trọng điểm Cái Bè (Thúc đẩy doanh số)', limit: 12, items: [] },
-                    T4: { day: 'Thứ 4', desc: 'Triển khai Châu Thành / Mỹ Tho', limit: 12, items: [] },
-                    T5: { day: 'Thứ 5', desc: 'Triển khai tuyến Cai Lậy / Tân Phước', limit: 12, items: [] },
-                    T6: { day: 'Thứ 6', desc: 'Trọng điểm Cái Bè (Thúc đẩy doanh số)', limit: 12, items: [] },
-                    T7: { day: 'Thứ 7', desc: 'Bảo trì tuyến Mỹ Tho / Châu Thành', limit: 12, items: [] },
-                };
-
-                const dayDistrictMap = {
-                    'T2': ['cai lay', 'tan phuoc'], 'T3': ['cai be', 'cai lay'], 'T4': ['chau thanh', 'my tho'],
-                    'T5': ['cai lay', 'tan phuoc'], 'T6': ['cai be', 'cai lay'], 'T7': ['my tho', 'chau thanh']
-                };
-                const daysKeys = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
-
-                const pullCustomersForDay = (targetDistricts, maxToPull) => {
-                    let pulled = [];
-                    for (let i = activeCustomersPool.length - 1; i >= 0; i--) {
-                        const c = activeCustomersPool[i]; const h = normalizeStr(c.huyen) || 'khac';
-                        if (targetDistricts.includes('all') || targetDistricts.some(dist => h.includes(dist))) {
-                            pulled.push(c); activeCustomersPool.splice(i, 1);
-                            if (pulled.length >= maxToPull) break;
-                        }
+            const isEligibleForWeek = (c, weekNum, totalWeeks) => {
+                const sg = c.subGroup || 1; 
+                if (c.type === 'TRONG_DIEM') {
+                    if (totalWeeks >= 5) {
+                        const p5 = [[1, 3, 5], [1, 2, 4], [2, 4, 5], [1, 3, 4]];
+                        return p5[(sg - 1) % 4].includes(Number(weekNum));
                     }
-                    return pulled;
-                };
-
-                daysKeys.forEach(d => { const needed = 8 - weekSchedule[d].items.length; if (needed > 0) weekSchedule[d].items.push(...pullCustomersForDay(dayDistrictMap[d], needed)); });
-                daysKeys.forEach(d => { const needed = 8 - weekSchedule[d].items.length; if (needed > 0) weekSchedule[d].items.push(...pullCustomersForDay(['all'], needed)); });
-                daysKeys.forEach(d => { const currentCount = weekSchedule[d].items.length; if (currentCount < 12) weekSchedule[d].items.push(...pullCustomersForDay(dayDistrictMap[d], 12 - currentCount)); });
-
-                while (activeCustomersPool.length > 0) {
-                    const c = activeCustomersPool.shift(); let minDay = daysKeys[0]; 
-                    for (let d of daysKeys) { if (weekSchedule[d].items.length < weekSchedule[minDay].items.length) { minDay = d; } }
-                    if (weekSchedule[minDay].items.length < 12) {
-                        weekSchedule[minDay].items.push(c);
-                    } else {
-                        let placed = false;
-                        for (let d of daysKeys) {
-                            if (weekSchedule[d].items.length < 12) { weekSchedule[d].items.push(c); placed = true; break; }
-                        }
-                        if (!placed) weekSchedule[minDay].items.push(c);
+                    const p4 = [[1, 2, 3], [1, 2, 4], [1, 3, 4], [2, 3, 4]];
+                    return p4[(sg - 1) % 4].includes(Number(weekNum));
+                } else if (c.type === 'DUY_TRI') {
+                    if (totalWeeks >= 5) {
+                        const p5 = [[1, 4], [2, 5], [1, 3], [2, 4]];
+                        return p5[(sg - 1) % 4].includes(Number(weekNum));
                     }
+                    return (sg % 2 !== 0) ? (weekNum === 1 || weekNum === 3) : (weekNum === 2 || weekNum === 4);
+                } else if (c.type === 'TUONG_TAC') {
+                    const targetW = (sg % totalWeeks === 0) ? totalWeeks : (sg % totalWeeks);
+                    return Number(weekNum) === targetW;
                 }
-                return weekSchedule;
+                return false;
             };
 
             const executeRoutingForMonth = () => {
-                setStatus({ type: 'loading', text: 'Đang tổng hợp lộ trình...' });
+                setStatus({ type: 'loading', text: 'Đang tổng hợp lộ trình động theo lịch thực tế...' });
                 setTimeout(() => {
-                    setFullMonthSchedule({ 1: buildSingleWeek(1), 2: buildSingleWeek(2), 3: buildSingleWeek(3), 4: buildSingleWeek(4) });
+                    const cal = buildMonthCalendar(selectedYear, selectedMonth);
+                    const totalWeeks = Object.keys(cal).length;
+                    const newSchedule = {};
+
+                    const dayDescMap = { 'T2': 'Triển khai tuyến Cai Lậy / Tân Phước', 'T3': 'Trọng điểm Cái Bè (Thúc đẩy doanh số)', 'T4': 'Triển khai Châu Thành / Mỹ Tho', 'T5': 'Triển khai tuyến Cai Lậy / Tân Phước', 'T6': 'Trọng điểm Cái Bè (Thúc đẩy doanh số)', 'T7': 'Bảo trì tuyến Mỹ Tho / Châu Thành' };
+                    const dayDistrictMap = { 'T2': ['cai lay', 'tan phuoc'], 'T3': ['cai be', 'cai lay'], 'T4': ['chau thanh', 'my tho'], 'T5': ['cai lay', 'tan phuoc'], 'T6': ['cai be', 'cai lay'], 'T7': ['my tho', 'chau thanh'] };
+
+                    Object.keys(cal).forEach(wStr => {
+                        const weekNum = parseInt(wStr);
+                        newSchedule[weekNum] = {};
+                        const daysInWeek = cal[wStr]; 
+
+                        let activeCustomersPool = customers.filter(c => isEligibleForWeek(c, weekNum, totalWeeks)).map(c => ({...c, sales: ''}));
+
+                        Object.keys(daysInWeek).forEach(dayKey => {
+                            newSchedule[weekNum][dayKey] = {
+                                day: `Thứ ${dayKey.replace('T', '')}`,
+                                desc: dayDescMap[dayKey] || 'Triển khai tuyến',
+                                limit: 12,
+                                items: [],
+                                date: daysInWeek[dayKey].date
+                            };
+
+                            const targetDistricts = dayDistrictMap[dayKey] || ['all'];
+
+                            const pullCustomersForDay = (districts, maxToPull) => {
+                                let pulled = [];
+                                for (let i = activeCustomersPool.length - 1; i >= 0; i--) {
+                                    const c = activeCustomersPool[i]; const h = normalizeStr(c.huyen) || 'khac';
+                                    if (districts.includes('all') || districts.some(dist => h.includes(dist))) {
+                                        pulled.push(c); activeCustomersPool.splice(i, 1);
+                                        if (pulled.length >= maxToPull) break;
+                                    }
+                                }
+                                return pulled;
+                            };
+
+                            newSchedule[weekNum][dayKey].items.push(...pullCustomersForDay(targetDistricts, 8));
+                            const needed1 = 8 - newSchedule[weekNum][dayKey].items.length;
+                            if (needed1 > 0) newSchedule[weekNum][dayKey].items.push(...pullCustomersForDay(['all'], needed1));
+                            const needed2 = 12 - newSchedule[weekNum][dayKey].items.length;
+                            if (needed2 > 0) newSchedule[weekNum][dayKey].items.push(...pullCustomersForDay(targetDistricts, needed2));
+                        });
+
+                        while (activeCustomersPool.length > 0) {
+                            const c = activeCustomersPool.shift(); 
+                            const availableDays = Object.keys(daysInWeek);
+                            if(availableDays.length === 0) break;
+                            
+                            let minDay = availableDays[0]; 
+                            for (let d of availableDays) { if (newSchedule[weekNum][d].items.length < newSchedule[weekNum][minDay].items.length) { minDay = d; } }
+                            if (newSchedule[weekNum][minDay].items.length < 12) {
+                                newSchedule[weekNum][minDay].items.push(c);
+                            } else {
+                                let placed = false;
+                                for (let d of availableDays) {
+                                    if (newSchedule[weekNum][d].items.length < 12) { newSchedule[weekNum][d].items.push(c); placed = true; break; }
+                                }
+                                if (!placed) newSchedule[weekNum][minDay].items.push(c);
+                            }
+                        }
+                    });
+
+                    setFullMonthSchedule(newSchedule);
                     setActiveTab('schedule'); setActiveWeekTab(1); setSearchTerm('');
-                    setStatus({ type: 'success', text: `Tạo lộ trình Tháng ${selectedMonth}/${selectedYear} thành công.` });
+                    setStatus({ type: 'success', text: `Đã tạo kín ${totalWeeks} vòng theo Lịch tháng ${selectedMonth}/${selectedYear}.` });
                 }, 500);
             };
 
             const getSalesData = () => {
                 let currentMonthSales = 0; let currentQuarterManualSales = 0; let yearManualSales = 0; 
-                let trongDiemSales = 0; let duyTriSales = 0; let tuongTacSales = 0;
+                let trongDiemSales = 0, duyTriSales = 0, tuongTacSales = 0;
                 const currentQuarter = Math.ceil(selectedMonth / 3);
                 const qMonths = [(currentQuarter-1)*3 + 1, (currentQuarter-1)*3 + 2, (currentQuarter-1)*3 + 3];
 
                 customers.forEach(c => {
                     let scheduleSales = 0;
                     if (fullMonthSchedule) {
-                        [1, 2, 3, 4].forEach(week => {
+                        Object.keys(fullMonthSchedule).forEach(week => {
                             Object.values(fullMonthSchedule[week]).forEach(day => {
                                 const item = day.items.find(i => i.id === c.id);
                                 if (item && item.sales) scheduleSales += Number(item.sales) || 0;
@@ -500,20 +542,8 @@
 
                     wsForm.mergeCells('D2:K2'); wsForm.getCell('D2').value = `BẢNG THEO DÕI DOANH SỐ KHÁCH HÀNG NĂM ${selectedYear}`; wsForm.getCell('D2').font = { bold: true, size: 14 };
                     wsForm.mergeCells('D3:F3'); wsForm.getCell('D3').value = 'NVKD : Huỳnh Minh Thuận';
-                    
-                    wsForm.mergeCells('D4:F4'); wsForm.getCell('D4').value = `CHỈ TIÊU QUÝ ${currentQuarterCol}`; 
-                    wsForm.getCell('G4').value = Number(targetQuarter); 
-                    wsForm.getCell('G4').numFmt = '#,##0';
-                    
-                    wsForm.mergeCells('D5:F5'); wsForm.getCell('D5').value = 'THỰC HIỆN:'; 
-                    wsForm.getCell('G5').value = salesStats.totalQuarter;
-                    wsForm.getCell('G5').numFmt = '#,##0';
-                    wsForm.getCell('G5').font = { bold: true, color: { argb: 'FFFF0000' }};
-
-                    wsForm.mergeCells('D6:F6'); wsForm.getCell('D6').value = 'TỈ LỆ % :'; 
-                    wsForm.getCell('G6').value = targetQuarter > 0 ? (salesStats.totalQuarter / targetQuarter) : 0;
-                    wsForm.getCell('G6').numFmt = '0.00%';
-                    wsForm.getCell('G6').font = { bold: true, color: { argb: 'FF008000' }};
+                    wsForm.mergeCells('D4:F4'); wsForm.getCell('D4').value = `CHỈ TIÊU QUÝ ${currentQuarterCol}`; wsForm.getCell('G4').value = Number(targetQuarter); wsForm.getCell('G4').numFmt = '#,##0';
+                    wsForm.mergeCells('D5:F5'); wsForm.getCell('D5').value = 'THỰC HIỆN:'; wsForm.mergeCells('D6:F6'); wsForm.getCell('D6').value = 'TỈ LỆ % :'; 
 
                     const headerRow = wsForm.getRow(8);
                     const headerValues = ['STT', 'TÊN KHÁCH HÀNG', 'SĐT', 'XÃ', 'HUYỆN', 'TỈNH', 'TÊN NPP', 'Tháng 1', 'Tháng 2', 'Tháng 3', 'QUÝ 1', 'Tháng 4', 'Tháng 5', 'Tháng 6', 'QUÝ 2', 'Tháng 7', 'Tháng 8', 'Tháng 9', 'QUÝ 3', 'Tháng 10', 'Tháng 11', 'Tháng 12', 'QUÝ 4', 'TỔNG NĂM', `DS TỔNG THÁNG ${selectedMonth}`];
@@ -524,14 +554,15 @@
                     const monthColMap = { 1:8, 2:9, 3:10, 4:12, 5:13, 6:14, 7:16, 8:17, 9:18, 10:20, 11:21, 12:22 };
                     const salesMap = {}; customers.forEach(c => salesMap[c.id] = { c, days: Array(31).fill(0) });
 
-                    let dayCounter = 0; 
-                    [1, 2, 3, 4].forEach(week => { 
-                        ['T2', 'T3', 'T4', 'T5', 'T6', 'T7'].forEach(dayKey => { 
-                            if (fullMonthSchedule[week][dayKey]) { 
-                                fullMonthSchedule[week][dayKey].items.forEach(item => { 
-                                    if (item.sales && !isNaN(item.sales)) salesMap[item.id].days[dayCounter] += Number(item.sales); 
+                    // BẮT CHÍNH XÁC NGÀY VÀO ĐÚNG CỘT NGÀY EXCEL
+                    Object.keys(fullMonthSchedule).forEach(week => { 
+                        Object.keys(fullMonthSchedule[week]).forEach(dayKey => { 
+                            const dayData = fullMonthSchedule[week][dayKey];
+                            const exactDate = dayData.date; // 1 -> 31
+                            if (exactDate) { 
+                                dayData.items.forEach(item => { 
+                                    if (item.sales && !isNaN(item.sales)) salesMap[item.id].days[exactDate - 1] += Number(item.sales); 
                                 }); 
-                                dayCounter++; 
                             } 
                         }); 
                     });
@@ -548,22 +579,21 @@
 
                         if (daysSum === 0 && c.dailySales) {
                             for(let d = 1; d <= 31; d++) {
-                                if (c.dailySales[d]) finalDailySales[d-1] = Number(c.dailySales[d]);
+                                if (c.dailySales[d]) finalDailySales[d-1] = c.dailySales[d];
                             }
                             daysSum = finalDailySales.reduce((a,b)=>a+b, 0);
                         }
 
                         let mSales = {};
+
                         for (let m = 1; m <= 12; m++) {
                             const targetCol = monthColMap[m];
                             let val = Number(c.monthlySales?.[m]) || 0;
                             
                             if (m === selectedMonth) { 
                                 val = daysSum > 0 ? daysSum : val;
-                                if (val > 0) {
-                                    r.getCell(targetCol).value = { formula: `Y${rowIndex}`, result: val }; 
-                                    r.getCell(targetCol).font = { bold: true }; 
-                                }
+                                r.getCell(targetCol).value = val > 0 ? { formula: `Y${rowIndex}`, result: val } : val; 
+                                r.getCell(targetCol).font = { bold: true }; 
                             } else { 
                                 if (val > 0) r.getCell(targetCol).value = val; 
                             }
@@ -581,17 +611,12 @@
                         r.getCell(23).value = { formula: `T${rowIndex}+U${rowIndex}+V${rowIndex}`, result: q4 }; r.getCell(23).font = { bold: true }; r.getCell(23).numFmt = '#,##0';
                         
                         r.getCell(24).value = { formula: `K${rowIndex}+O${rowIndex}+S${rowIndex}+W${rowIndex}`, result: totalYear }; r.getCell(24).font = { bold: true, color: { argb: 'FFFF0000' } }; r.getCell(24).numFmt = '#,##0';
-                        
-                        if (daysSum > 0) {
-                            r.getCell(25).value = { formula: `SUM(Z${rowIndex}:BD${rowIndex})`, result: daysSum }; 
-                        } else {
-                            r.getCell(25).value = 0;
-                        }
-                        r.getCell(25).font = { bold: true, color: { argb: 'FF0047AB' } }; r.getCell(25).numFmt = '#,##0';
-                        totalColSums[25] += daysSum;
+                        r.getCell(25).value = { formula: `SUM(Z${rowIndex}:BD${rowIndex})`, result: daysSum }; r.getCell(25).font = { bold: true, color: { argb: 'FF0047AB' } }; r.getCell(25).numFmt = '#,##0';
+
+                        totalColSums[11] += q1; totalColSums[15] += q2; totalColSums[19] += q3; totalColSums[23] += q4; totalColSums[24] += totalYear; totalColSums[25] += daysSum;
 
                         finalDailySales.forEach((val, dayIdx) => { 
-                            if (val > 0) { r.getCell(26 + dayIdx).value = val; r.getCell(26 + dayIdx).numFmt = '#,##0'; totalColSums[26 + dayIdx] += val; } 
+                            if (val > 0) { r.getCell(26 + dayIdx).value = val; r.getCell(26 + dayIdx).numFmt = '#,##0'; totalColSums[26 + dayIdx] += Number(val); } 
                         });
                         r.eachCell({ includeEmpty: true }, (cell, colNum) => { if(colNum <= 56) { cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; cell.alignment = { vertical: 'middle', wrapText: true }; }});
                         rowIndex++;
@@ -607,6 +632,14 @@
                         totalRow.getCell(col).numFmt = '#,##0'; totalRow.getCell(col).font = { bold: true, color: { argb: 'FFFF0000' } };
                     }
                     totalRow.eachCell({ includeEmpty: true }, (c, colNum) => { if(colNum <= 56) { c.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } }; c.alignment = { vertical: 'middle' }; } });
+
+                    const qColMapObj = { 1: 11, 2: 15, 3: 19, 4: 23 };
+                    const qLetter = wsForm.getColumn(qColMapObj[currentQuarterCol]).letter;
+                    const actualQSum = totalColSums[qColMapObj[currentQuarterCol]] || 0;
+
+                    if (endDataRow >= 9) { wsForm.getCell('G5').value = { formula: `${qLetter}${endDataRow + 1}`, result: actualQSum }; } else { wsForm.getCell('G5').value = 0; }
+                    wsForm.getCell('G5').numFmt = '#,##0'; wsForm.getCell('G5').font = { bold: true, color: { argb: 'FFFF0000' }};
+                    wsForm.getCell('G6').value = { formula: 'IF(G4=0,0,G5/G4)', result: targetQuarter > 0 ? actualQSum / targetQuarter : 0 }; wsForm.getCell('G6').numFmt = '0.00%';
 
                     const qCols = { 1: [8, 9, 10, 11], 2: [12, 13, 14, 15], 3: [16, 17, 18, 19], 4: [20, 21, 22, 23] };
                     for (let c = 8; c <= 24; c++) if (!qCols[currentQuarterCol].includes(c) || c === 24) wsForm.getColumn(c).hidden = true;
@@ -630,12 +663,15 @@
 
                     let schedRowIdx = 3; let schedSalesTotal = 0;
                     
-                    [1, 2, 3, 4].forEach(weekNum => {
+                    Object.keys(fullMonthSchedule).forEach(weekNum => {
                         Object.keys(fullMonthSchedule[weekNum]).forEach(dayKey => {
                             const dayData = fullMonthSchedule[weekNum][dayKey];
                             if(dayData.items.length === 0) return;
 
-                            const dayHeaderRow = wsSchedule.addRow([`[TUẦN ${weekNum}] NGÀY: ${dayData.day.toUpperCase()} - MỤC TIÊU: ${dayData.desc}`]);
+                            const exactDate = dayData.date;
+                            const dateStr = exactDate ? `Ngày ${exactDate}/${selectedMonth}` : '';
+
+                            const dayHeaderRow = wsSchedule.addRow([`[TUẦN ${weekNum}] ${dayData.day.toUpperCase()} (${dateStr}) - MỤC TIÊU: ${dayData.desc}`]);
                             wsSchedule.mergeCells(`A${schedRowIdx}:G${schedRowIdx}`);
                             dayHeaderRow.getCell(1).font = { bold: true, color: { argb: 'FF0047AB' } }; dayHeaderRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } }; dayHeaderRow.getCell(1).border = { top: {style:'medium'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} }; dayHeaderRow.getCell(1).alignment = { vertical: 'middle' }; wsSchedule.getRow(schedRowIdx).height = 22; schedRowIdx++;
 
@@ -685,6 +721,7 @@
                     const fileName = `LichTuyen_BaoCao_Thang${selectedMonth}_${selectedYear}.xlsx`; 
                     const mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
                     const blob = new Blob([buffer], { type: mimeType });
+
                     const file = new File([blob], fileName, { type: mimeType });
 
                     const today = new Date();
@@ -697,7 +734,8 @@
                     if (navigator.canShare && navigator.canShare({ files: [file] })) {
                         try { 
                             await navigator.share({ files: [file], title: 'Báo Cáo Lịch Tuyến', text: shareText }); 
-                            setStatus({ type: 'success', text: 'Đã lưu/chia sẻ file thành công!' }); return; 
+                            setStatus({ type: 'success', text: 'Đã lưu/chia sẻ file thành công!' }); 
+                            return; 
                         } catch (e) {}
                     }
                     try {
@@ -727,7 +765,7 @@
             const currentQuarterMonths = (() => { const q = Math.ceil(selectedMonth / 3); return [(q-1)*3 + 1, (q-1)*3 + 2, (q-1)*3 + 3]; })();
 
             const estimatedVisits = (trongDiemCount * 3) + (duyTriCount * 2) + (tuongTacCount * 1);
-            const minRequiredVisits = 100; 
+            const minRequiredVisits = 200; 
             const maxAllowedVisits = 288; 
             
             let kpiStatus = 'good';
@@ -760,7 +798,7 @@
                             <div className="p-4 flex flex-col md:flex-row justify-between items-center gap-4 border-b border-slate-100 relative">
                                 <div className="text-center md:text-left">
                                     <h1 className="text-2xl font-black text-blue-900 tracking-tight uppercase">Lịch Chăm Sóc Khách Hàng</h1>
-                                    <p className="text-sm font-medium text-slate-500 mt-1">Quản lý Tuyến & Doanh số (V5)</p>
+                                    <p className="text-sm font-medium text-slate-500 mt-1">Quản lý Tuyến & Doanh số</p>
                                 </div>
                                 {activeTab !== 'upload' && (
                                     <button onClick={goBack} className="absolute top-4 right-4 md:static md:right-auto md:top-auto bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-bold transition flex items-center gap-2 border border-slate-200">
@@ -796,6 +834,7 @@
                                     <div onClick={() => librariesReady && fileInputRef.current.click()} className={`max-w-xl mx-auto border-2 border-dashed rounded-2xl p-10 cursor-pointer transition-all ${librariesReady ? 'border-blue-400 bg-blue-50 hover:bg-blue-100' : 'border-slate-300 bg-slate-50 opacity-60'}`}>
                                         <i className="fa-solid fa-file-excel text-blue-600 text-[48px] mb-4"></i>
                                         <h2 className="text-xl font-black text-blue-900 mb-2">QUÉT CHỌN CÁC FILE .XLSX CẦN GỘP</h2>
+                                        <p className="text-blue-600/70 text-sm font-medium">Bản nâng cấp: Tự động gỡ định dạng tiền tệ và nhận dạng cả cột ngày bị ẩn.</p>
                                     </div>
                                 )}
                                 <input type="file" accept=".xlsx, .xls" multiple ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
@@ -844,56 +883,37 @@
                                             const importedDaysSum = c.dailySales ? Object.values(c.dailySales).reduce((sum, val) => sum + (Number(val) || 0), 0) : 0;
                                             return (
                                             <div key={c.id} className={`p-4 rounded-xl border flex flex-col transition-all ${c.type === 'TRONG_DIEM' ? 'border-blue-300 bg-blue-50/40' : c.type === 'TUONG_TAC' ? 'border-purple-300 bg-purple-50/40' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
-                                                {editingInfoId === c.id ? (
-                                                    <div className="p-3 bg-white border border-blue-400 rounded-lg mb-2 shadow-inner">
-                                                        <div className="text-[10px] font-bold text-blue-600 mb-1">CẬP NHẬT THÔNG TIN:</div>
-                                                        <input type="text" value={editFormData.name} onChange={e=>setEditFormData({...editFormData, name: e.target.value})} className="w-full mb-1 p-1 text-[13px] border border-slate-300 rounded outline-none focus:border-blue-500" placeholder="Tên KH" />
-                                                        <input type="text" value={editFormData.phone} onChange={e=>setEditFormData({...editFormData, phone: e.target.value})} className="w-full mb-1 p-1 text-[13px] border border-slate-300 rounded outline-none focus:border-blue-500" placeholder="SĐT" />
-                                                        <div className="flex gap-1 mb-2">
-                                                            <input type="text" value={editFormData.xa} onChange={e=>setEditFormData({...editFormData, xa: e.target.value})} className="w-1/2 p-1 text-[13px] border border-slate-300 rounded outline-none focus:border-blue-500" placeholder="Xã" />
-                                                            <input type="text" value={editFormData.huyen} onChange={e=>setEditFormData({...editFormData, huyen: e.target.value})} className="w-1/2 p-1 text-[13px] border border-slate-300 rounded outline-none focus:border-blue-500" placeholder="Huyện" />
-                                                        </div>
-                                                        <div className="flex gap-2">
-                                                            <button onClick={() => saveEditInfo(c.id)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs font-bold transition">Lưu</button>
-                                                            <button onClick={() => setEditingInfoId(null)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-1.5 rounded text-xs font-bold transition">Hủy</button>
-                                                        </div>
+                                                <div className="flex justify-between items-start mb-2">
+                                                    <div className="truncate pr-2 flex-1">
+                                                        <div className="font-bold text-[15px] truncate text-slate-800">{c.name}</div>
+                                                        <div className="text-[11px] text-slate-500 mt-0.5"><i className="fa-solid fa-location-dot"></i> {[c.xa, c.huyen].filter(Boolean).join(', ')}</div>
+                                                        {importedDaysSum > 0 && (
+                                                            <div className="text-[10px] font-bold text-emerald-600 mt-1"><i className="fa-solid fa-check-circle"></i> Đã nạp DS Ngày: {formatVND(importedDaysSum)}đ</div>
+                                                        )}
                                                     </div>
-                                                ) : (
-                                                    <div className="flex justify-between items-start mb-2">
-                                                        <div className="truncate pr-2 flex-1">
-                                                            <div className="font-bold text-[15px] truncate text-slate-800 flex items-center gap-1.5">
-                                                                {c.name}
-                                                                <button onClick={() => { setEditingInfoId(c.id); setEditFormData({name: c.name, phone: c.phone, xa: c.xa, huyen: c.huyen}); }} className="text-slate-400 hover:text-blue-600" title="Sửa thông tin"><i className="fa-solid fa-pen-to-square text-[12px]"></i></button>
-                                                            </div>
-                                                            <div className="text-[11px] text-slate-500 mt-0.5"><i className="fa-solid fa-location-dot"></i> {[c.xa, c.huyen].filter(Boolean).join(', ')}</div>
-                                                            {importedDaysSum > 0 && (
-                                                                <div className="text-[10px] font-bold text-emerald-600 mt-1"><i className="fa-solid fa-check-circle"></i> Đã nạp DS Ngày: {formatVND(importedDaysSum)}đ</div>
-                                                            )}
-                                                        </div>
-                                                        <button onClick={() => toggleType(c.id)} className={`shrink-0 text-[10px] uppercase font-bold px-2 py-1.5 rounded-md border transition-colors ${c.type === 'TRONG_DIEM' ? 'bg-blue-600 text-white border-blue-700 shadow-sm' : c.type === 'TUONG_TAC' ? 'bg-purple-600 text-white border-purple-700 shadow-sm' : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'}`}>
-                                                            {c.type === 'TRONG_DIEM' ? 'Trọng Điểm' : c.type === 'TUONG_TAC' ? 'Tương Tác' : 'Duy Trì'}
-                                                        </button>
-                                                    </div>
-                                                )}
+                                                    <button onClick={() => toggleType(c.id)} className={`shrink-0 text-[10px] uppercase font-bold px-2 py-1.5 rounded-md border transition-colors ${c.type === 'TRONG_DIEM' ? 'bg-blue-600 text-white border-blue-700 shadow-sm' : c.type === 'TUONG_TAC' ? 'bg-purple-600 text-white border-purple-700 shadow-sm' : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'}`}>
+                                                        {c.type === 'TRONG_DIEM' ? 'Trọng Điểm' : c.type === 'TUONG_TAC' ? 'Tương Tác' : 'Duy Trì'}
+                                                    </button>
+                                                </div>
                                                 
                                                 <div className="flex items-center justify-between border-t border-slate-100 pt-3 mt-1">
                                                     <button onClick={() => setExpandedCustomer(expandedCustomer === c.id ? null : c.id)} className="text-[11px] bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold px-2.5 py-1.5 rounded transition border border-slate-200 flex items-center gap-1.5">
                                                         <i className="fa-solid fa-pencil"></i> Nhập DS Các Tháng
                                                     </button>
                                                     <button onClick={() => setCustomerToDelete(c)} className="w-7 h-7 flex items-center justify-center hover:bg-red-50 text-slate-400 hover:text-red-500 rounded transition-colors" title="Xóa KH">
-                                                        <i className="fa-solid fa-trash-can\"></i>
+                                                        <i className="fa-solid fa-trash-can"></i>
                                                     </button>
                                                 </div>
 
                                                 {expandedCustomer === c.id && (
                                                     <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-2.5 animate-in zoom-in-95">
-                                                        <div className="text-[10px] font-bold text-slate-500 mb-2 uppercase text-center tracking-wider">Doanh Số 12 Tháng</div>
-                                                        <div className="grid grid-cols-4 md:grid-cols-6 gap-1.5">
-                                                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
+                                                        <div className="text-[10px] font-bold text-slate-500 mb-2 uppercase text-center tracking-wider">Doanh Số Quý {Math.ceil(selectedMonth/3)}</div>
+                                                        <div className="grid grid-cols-3 gap-1.5">
+                                                            {currentQuarterMonths.map(m => (
                                                                 <input key={m} type="number" placeholder={`T${m}`} value={c.monthlySales?.[m] || ''} 
                                                                     onChange={e => handleMonthlySalesChange(c.id, m, e.target.value)}
-                                                                    className={`w-full border p-1.5 text-[11px] font-bold rounded outline-none text-center focus:border-blue-500 transition-colors ${m === selectedMonth ? 'border-blue-400 bg-blue-100 text-blue-800 shadow-sm' : 'border-slate-200 bg-white text-slate-700'}`} 
-                                                                    title={`Nhập Doanh số Tháng ${m}`} 
+                                                                    className={`w-full border p-1 text-[11px] font-bold rounded outline-none text-center ${m === selectedMonth && importedDaysSum > 0 ? 'bg-emerald-100 text-emerald-700 cursor-not-allowed' : m === selectedMonth ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white focus:border-blue-500 text-blue-700'}`} 
+                                                                    disabled={m === selectedMonth} title={m === selectedMonth ? "Tháng hiện hành lấy từ Lịch Tuyến/DS Ngày" : `Nhập DS Tháng ${m}`} 
                                                                 />
                                                             ))}
                                                         </div>
@@ -947,9 +967,9 @@
                                                 {kpiStatus === 'good' ? (
                                                     <span>Tiến độ <b>TỐI ƯU</b>. Đủ điều kiện đáp ứng KPI. Bấm Tạo lịch để triển khai.</span>
                                                 ) : kpiStatus === 'under' ? (
-                                                    <span>Hụt KPI. <b>Cần mở mới thêm KH</b> hoặc chỉnh loại cửa hàng.</span>
+                                                    <span>Hụt KPI. <b>Cần mở mới thêm KH</b> hoặc nâng lên Trọng Điểm/Duy Trì.</span>
                                                 ) : (
-                                                    <span>Quá tải. <b>Cần giảm tải</b>: Đổi bớt KH xuống cấp Duy Trì/Tương Tác.</span>
+                                                    <span>Quá tải. <b>Cần giảm tải</b>: Đổi bớt KH Trọng Điểm xuống Duy Trì/Tương Tác.</span>
                                                 )}
                                                 {gpsPercent < 100 && (
                                                     <div className="mt-1.5 text-xs text-blue-600">* Nhớ cập nhật GPS trên đường đi.</div>
@@ -1035,7 +1055,7 @@
                                 </div>
 
                                 <div className="flex justify-center mt-6">
-                                    <button onClick={executeRoutingForMonth} className="bg-blue-600 hover:bg-blue-700 text-white px-10 py-4 rounded-xl font-black text-lg flex items-center gap-3 shadow-md active:scale-95 transition-all"><i className="fa-solid fa-calendar-check text-[20px]"></i> TẠO LỊCH 1 THÁNG (4 TUẦN)</button>
+                                    <button onClick={executeRoutingForMonth} className="bg-blue-600 hover:bg-blue-700 text-white px-10 py-4 rounded-xl font-black text-lg flex items-center gap-3 shadow-md active:scale-95 transition-all"><i className="fa-solid fa-calendar-check text-[20px]"></i> TẠO LỊCH 1 THÁNG CHUẨN LỊCH VẠN NIÊN</button>
                                 </div>
                             </div>
                         )}
@@ -1080,9 +1100,9 @@
                                 </div>
 
                                 <div className="flex bg-slate-200 p-1.5 rounded-xl overflow-x-auto w-full border border-slate-300 shadow-inner">
-                                    {[1, 2, 3, 4].map(week => (
-                                        <button key={week} onClick={() => setActiveWeekTab(week)} className={`flex-1 whitespace-nowrap px-4 py-2.5 rounded-lg text-sm font-black transition-all ${activeWeekTab === week ? 'bg-white shadow-md text-blue-700 scale-[1.02]' : 'text-slate-500 hover:text-slate-700'}`}>
-                                            <i className={`fa-solid ${activeWeekTab === week ? 'fa-folder-open' : 'fa-folder'} mr-2`}></i> TUẦN {week}
+                                    {Object.keys(fullMonthSchedule).map(week => (
+                                        <button key={week} onClick={() => setActiveWeekTab(Number(week))} className={`flex-1 whitespace-nowrap px-4 py-2.5 rounded-lg text-sm font-black transition-all ${activeWeekTab === Number(week) ? 'bg-white shadow-md text-blue-700 scale-[1.02]' : 'text-slate-500 hover:text-slate-700'}`}>
+                                            <i className={`fa-solid ${activeWeekTab === Number(week) ? 'fa-folder-open' : 'fa-folder'} mr-2`}></i> TUẦN {week}
                                         </button>
                                     ))}
                                 </div>
@@ -1095,11 +1115,15 @@
                                         let kpiColor = 'bg-emerald-100 text-emerald-700 border-emerald-200';
                                         if (count < 8) kpiColor = 'bg-orange-100 text-orange-700 border-orange-200';
 
+                                        const dateDisplay = data.date ? `(Ngày ${data.date}/${selectedMonth})` : '';
+
                                         return (
                                             <div key={key} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm flex flex-col h-[500px]">
                                                 <div className="bg-slate-50 p-4 border-b border-slate-200">
                                                     <div className="flex justify-between items-center mb-3">
-                                                        <h3 className="font-black text-slate-800 text-lg">{data.day}</h3>
+                                                        <h3 className="font-black text-slate-800 text-lg">
+                                                            {data.day} <span className="text-sm font-bold text-blue-600">{dateDisplay}</span>
+                                                        </h3>
                                                         <div className={`px-2 py-1 text-[11px] font-bold rounded-md border ${kpiColor}`}>{count}/12 Đại lý</div>
                                                     </div>
                                                     <div className="flex justify-between items-center">
@@ -1184,6 +1208,5 @@
     </script>
 </body>
 </html>
-
 
 
