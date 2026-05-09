@@ -1,18 +1,13 @@
-
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Lịch Chăm Sóc Khách Hàng MPE</title>
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- React & ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
@@ -387,36 +382,30 @@
                 }, 300);
             };
 
-                        const isEligibleForWeek = (c, weekNum, totalWeeks) => {
+            const isEligibleForWeek = (c, weekNum, totalWeeks) => {
                 const sg = c.subGroup || 1; 
                 if (c.type === 'TRONG_DIEM') {
-                    // Ma trận đi 3 lần/tháng cho tháng 6 tuần
                     if (totalWeeks === 6) {
                         const p6 = [[1, 3, 5], [2, 4, 6], [1, 4, 6], [2, 3, 5]];
                         return p6[(sg - 1) % 4].includes(Number(weekNum));
                     }
-                    // Ma trận đi 3 lần/tháng cho tháng 5 tuần
                     if (totalWeeks === 5) {
                         const p5 = [[1, 3, 5], [1, 2, 4], [2, 4, 5], [1, 3, 4]];
                         return p5[(sg - 1) % 4].includes(Number(weekNum));
                     }
-                    // Ma trận đi 3 lần/tháng cho tháng 4 tuần
                     const p4 = [[1, 2, 3], [1, 2, 4], [1, 3, 4], [2, 3, 4]];
                     return p4[(sg - 1) % 4].includes(Number(weekNum));
                 } else if (c.type === 'DUY_TRI') {
-                    // Ma trận đi 2 lần/tháng cho tháng 6 tuần
                     if (totalWeeks === 6) {
                         const p6 = [[1, 4], [2, 5], [3, 6], [1, 5]];
                         return p6[(sg - 1) % 4].includes(Number(weekNum));
                     }
-                    // Ma trận đi 2 lần/tháng cho tháng 5 tuần
                     if (totalWeeks === 5) {
                         const p5 = [[1, 4], [2, 5], [1, 3], [2, 4]];
                         return p5[(sg - 1) % 4].includes(Number(weekNum));
                     }
                     return (sg % 2 !== 0) ? (weekNum === 1 || weekNum === 3) : (weekNum === 2 || weekNum === 4);
                 } else if (c.type === 'TUONG_TAC') {
-                    // Tương tác đi 1 lần/tháng rải đều linh hoạt theo số tuần
                     const targetW = (sg % totalWeeks === 0) ? totalWeeks : (sg % totalWeeks);
                     return Number(weekNum) === targetW;
                 }
@@ -463,28 +452,45 @@
                                 return pulled;
                             };
 
+                            // Vét tuyến chuẩn trước 8 điểm
                             newSchedule[weekNum][dayKey].items.push(...pullCustomersForDay(targetDistricts, 8));
+                            // Thiếu 8 thì bù bằng khách ngoài tuyến
                             const needed1 = 8 - newSchedule[weekNum][dayKey].items.length;
                             if (needed1 > 0) newSchedule[weekNum][dayKey].items.push(...pullCustomersForDay(['all'], needed1));
+                            
+                            // Cố gắng tiếp tục vét tuyến chuẩn cho đạt 12
                             const needed2 = 12 - newSchedule[weekNum][dayKey].items.length;
                             if (needed2 > 0) newSchedule[weekNum][dayKey].items.push(...pullCustomersForDay(targetDistricts, needed2));
                         });
 
+                        // Xử lý các khách hàng còn sót lại trong tuần
                         while (activeCustomersPool.length > 0) {
                             const c = activeCustomersPool.shift(); 
                             const availableDays = Object.keys(daysInWeek);
                             if(availableDays.length === 0) break;
                             
                             let minDay = availableDays[0]; 
-                            for (let d of availableDays) { if (newSchedule[weekNum][d].items.length < newSchedule[weekNum][minDay].items.length) { minDay = d; } }
+                            for (let d of availableDays) { 
+                                if (newSchedule[weekNum][d].items.length < newSchedule[weekNum][minDay].items.length) { 
+                                    minDay = d; 
+                                } 
+                            }
+                            
                             if (newSchedule[weekNum][minDay].items.length < 12) {
                                 newSchedule[weekNum][minDay].items.push(c);
                             } else {
                                 let placed = false;
                                 for (let d of availableDays) {
-                                    if (newSchedule[weekNum][d].items.length < 12) { newSchedule[weekNum][d].items.push(c); placed = true; break; }
+                                    if (newSchedule[weekNum][d].items.length < 12) { 
+                                        newSchedule[weekNum][d].items.push(c); 
+                                        placed = true; 
+                                        break; 
+                                    }
                                 }
-                                if (!placed) newSchedule[weekNum][minDay].items.push(c);
+                                // KHÓA CỨNG: Nếu mọi ngày đều đã chạm ngưỡng 12, lập tức ngắt bỏ, không dồi thêm
+                                if (!placed) {
+                                    break; 
+                                }
                             }
                         }
                     });
@@ -1222,5 +1228,3 @@
     </script>
 </body>
 </html>
-
-
