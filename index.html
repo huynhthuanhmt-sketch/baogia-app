@@ -383,7 +383,7 @@
             };
 
             const executeRoutingForMonth = () => {
-                setStatus({ type: 'loading', text: 'Đang giải bài toán rải đều & ghép tuyến theo địa lý...' });
+                setStatus({ type: 'loading', text: 'Đang giải bài toán rải đều & bù đắp KPI...' });
                 setTimeout(() => {
                     const cal = buildMonthCalendar(selectedYear, selectedMonth);
                     const newSchedule = {};
@@ -400,7 +400,7 @@
                             newSchedule[weekNum][dayKey] = {
                                 day: `Thứ ${dayKey.replace('T', '')}`,
                                 desc: dayDescMap[dayKey] || 'Triển khai tuyến',
-                                limit: 12, // Giới hạn max
+                                limit: 12,
                                 items: [],
                                 date: cal[wStr][dayKey].date
                             };
@@ -408,7 +408,7 @@
                         });
                     });
 
-                    // 2. Gom toàn bộ "Phiếu đi tuyến" (Trọng điểm = 3 phiếu, Duy trì = 2, Tương tác = 1)
+                    // 2. Gom phiếu đi tuyến dựa vào LOẠI KHÁCH
                     let visitsToAssign = [];
                     customers.forEach(c => {
                         let visits = 1; 
@@ -420,43 +420,40 @@
                         }
                     });
 
-                    // 3. Sắp xếp: Ưu tiên rải hết Lượt 1 trước, đảm bảo sự giãn cách cho Lượt 2, Lượt 3
+                    // 3. Xếp Lượt 1 trước, đảm bảo không bị dính cục
                     visitsToAssign.sort((a, b) => a._visitIndex - b._visitIndex);
 
-                    // Hàm phụ: Kiểm tra xem Tuần đó đã ghé khách này chưa
                     const countInWeek = (dayList, weekNum, custId) => {
                         return dayList.filter(d => d.week === weekNum).flatMap(d => d.items).filter(i => i.id === custId).length;
                     };
 
-                    // 4. THUẬT TOÁN SAN PHẲNG + ĐỊA LÝ
+                    // 4. CHIA ĐỀU KHÁCH VÀO CÁC NGÀY (SAN PHẲNG + ĐỊA LÝ)
                     visitsToAssign.forEach(visit => {
                         const h = normalizeStr(visit.huyen) || 'khac';
                         
-                        // Lọc ra danh sách các ngày ĐÚNG TUYẾN HUYỆN
                         const geoMatchedDays = allAvailableDays.filter(d => {
                             const targetDistricts = dayDistrictMap[d.dayKey] || ['all'];
                             return targetDistricts.includes('all') || targetDistricts.some(dist => h.includes(dist));
                         });
 
-                        // Ưu tiên 1: ĐÚNG HUYỆN + CHƯA ĐI TUẦN NÀY + CHƯA FULL
+                        // Ưu tiên 1: Cùng cụm Huyện + Chưa đi tuần này + Chỗ trống < 12
                         let candidates = geoMatchedDays.filter(d => d.items.length < 12 && countInWeek(allAvailableDays, d.week, visit.id) === 0);
 
-                        // Ưu tiên 2: ĐÚNG HUYỆN + KHÁC NGÀY
+                        // Ưu tiên 2: Cùng cụm Huyện + Khác ngày (Đi 2 lần 1 tuần cũng được)
                         if (candidates.length === 0) {
                             candidates = geoMatchedDays.filter(d => d.items.length < 12 && !d.items.some(i => i.id === visit.id));
                         }
 
-                        // Ưu tiên 3: PHÁ TUYẾN + CHƯA ĐI TUẦN NÀY
+                        // Ưu tiên 3: Vượt rào Huyện + Chưa đi tuần này
                         if (candidates.length === 0) {
                             candidates = allAvailableDays.filter(d => d.items.length < 12 && countInWeek(allAvailableDays, d.week, visit.id) === 0);
                         }
 
-                        // Ưu tiên 4: VÉT CẠN KHÁC NGÀY
+                        // Ưu tiên 4: Vét cạn (Miễn khác ngày)
                         if (candidates.length === 0) {
                             candidates = allAvailableDays.filter(d => !d.items.some(i => i.id === visit.id));
                         }
 
-                        // Ưu tiên ngày đang có ÍT khách nhất (San phẳng 8-12)
                         candidates.sort((a, b) => a.items.length - b.items.length);
                         
                         if(candidates.length > 0) {
@@ -464,14 +461,56 @@
                         }
                     });
 
-                    // 5. Cập nhật lại lịch hoàn chỉnh ra UI
+                    // 4.5. TỰ ĐỘNG BÙ ĐẮP (AUTO-PADDING) KHÉO LÉO
+                    // Tính số lần 1 khách hàng đã có mặt trong nguyên 1 tháng
+                    const countInMonth = (custId) => allAvailableDays.flatMap(d => d.items).filter(i => i.id === custId).length;
+
+                    allAvailableDays.forEach(day => {
+                        // Nếu ngày bị tụt xuống dưới 8 điểm
+                        while (day.items.length < 8) {
+                            
+                            // Chỉ lấy những khách:
+                            // 1. Chưa đi trong ngày hôm nay
+                            // 2. TỔNG SỐ LẦN ĐI TRONG THÁNG CHƯA QUÁ 4 LẦN (Chống lạm dụng ép 1 người đi quá nhiều)
+                            let padCandidates = customers.filter(c => 
+                                !day.items.some(i => i.id === c.id) && countInMonth(c.id) < 4 
+                            );
+                            
+                            if (padCandidates.length === 0) break; // Thoát nếu khách nào cũng đã đi quá 4 lần (Hiếm khi xảy ra)
+
+                            const targetDistricts = dayDistrictMap[day.dayKey] || ['all'];
+                            
+                            // Lọc thêm: Ưu tiên chọn khách ĐÚNG TUYẾN HUYỆN để không bị chạy trái đường
+                            let bestMatches = padCandidates.filter(c => {
+                                const h = normalizeStr(c.huyen) || 'khac';
+                                return targetDistricts.includes('all') || targetDistricts.some(dist => h.includes(dist));
+                            });
+                            
+                            // Rớt đài: Nếu không có ai đúng huyện, đành lấy râu ria
+                            if (bestMatches.length === 0) bestMatches = padCandidates;
+
+                            // Lọc thêm: Ưu tiên khách CHƯA ĐI TRONG TUẦN NÀY
+                            let notInWeekMatches = bestMatches.filter(c => countInWeek(allAvailableDays, day.week, c.id) === 0);
+                            if (notInWeekMatches.length > 0) {
+                                bestMatches = notInWeekMatches;
+                            }
+
+                            // SẮP XẾP CUỐI CÙNG: Đứa nào trong tháng đi ÍT NHẤT thì bốc đứa đó đi bù
+                            bestMatches.sort((a, b) => countInMonth(a.id) - countInMonth(b.id));
+
+                            const picked = bestMatches[0];
+                            day.items.push({ ...picked, sales: '', _visitIndex: 'pad_auto' });
+                        }
+                    });
+
+                    // 5. Cập nhật lịch vào UI
                     allAvailableDays.forEach(d => {
                         newSchedule[d.week][d.dayKey].items = d.items;
                     });
 
                     setFullMonthSchedule(newSchedule);
                     setActiveTab('schedule'); setActiveWeekTab(1); setSearchTerm('');
-                    setStatus({ type: 'success', text: `Đã tự động ghép tuyến & dàn trải đều ${visitsToAssign.length} lượt đi!` });
+                    setStatus({ type: 'success', text: `Chia lịch thành công! Đã chạy Auto-padding bù đắp thông minh.` });
                 }, 500);
             };
 
@@ -973,7 +1012,7 @@
                                     </div>
                                 </div>
 
-                                <div className bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
                                     <h3 className="font-bold text-slate-800 mb-4 text-lg">Tổng Hợp Doanh Số Tháng {selectedMonth}</h3>
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                                         <div className="bg-slate-50 border border-slate-100 p-4 rounded-lg">
@@ -1075,7 +1114,7 @@
                                             <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="bg-transparent outline-none cursor-pointer text-blue-700">
                                                 {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => <option key={m} value={m}>{m}</option>)}
                                             </select>
-                                            <span className="mx-1\">/</span>
+                                            <span className="mx-1">/</span>
                                             <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="bg-transparent outline-none cursor-pointer text-blue-700">
                                                 {[2025, 2026, 2027, 2028].map(y => <option key={y} value={y}>{y}</option>)}
                                             </select>
