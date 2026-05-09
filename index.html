@@ -382,52 +382,25 @@
                 }, 300);
             };
 
-            const isEligibleForWeek = (c, weekNum, totalWeeks) => {
-                const sg = c.subGroup || 1; 
-                if (c.type === 'TRONG_DIEM') {
-                    if (totalWeeks === 6) {
-                        const p6 = [[1, 3, 5], [2, 4, 6], [1, 4, 6], [2, 3, 5]];
-                        return p6[(sg - 1) % 4].includes(Number(weekNum));
-                    }
-                    if (totalWeeks === 5) {
-                        const p5 = [[1, 3, 5], [1, 2, 4], [2, 4, 5], [1, 3, 4]];
-                        return p5[(sg - 1) % 4].includes(Number(weekNum));
-                    }
-                    const p4 = [[1, 2, 3], [1, 2, 4], [1, 3, 4], [2, 3, 4]];
-                    return p4[(sg - 1) % 4].includes(Number(weekNum));
-                } else if (c.type === 'DUY_TRI') {
-                    if (totalWeeks === 6) {
-                        const p6 = [[1, 4], [2, 5], [3, 6], [1, 5]];
-                        return p6[(sg - 1) % 4].includes(Number(weekNum));
-                    }
-                    if (totalWeeks === 5) {
-                        const p5 = [[1, 4], [2, 5], [1, 3], [2, 4]];
-                        return p5[(sg - 1) % 4].includes(Number(weekNum));
-                    }
-                    return (sg % 2 !== 0) ? (weekNum === 1 || weekNum === 3) : (weekNum === 2 || weekNum === 4);
-                } else if (c.type === 'TUONG_TAC') {
-                    const targetW = (sg % totalWeeks === 0) ? totalWeeks : (sg % totalWeeks);
-                    return Number(weekNum) === targetW;
-                }
-                return false;
-            };
-
-           const executeRoutingForMonth = () => {
-                setStatus({ type: 'loading', text: 'Đang giải bài toán rải đều lịch đi tuyến...' });
+            const executeRoutingForMonth = () => {
+                setStatus({ type: 'loading', text: 'Đang giải bài toán rải đều & ghép tuyến theo địa lý...' });
                 setTimeout(() => {
                     const cal = buildMonthCalendar(selectedYear, selectedMonth);
                     const newSchedule = {};
                     let allAvailableDays = [];
 
-                    // 1. Tạo giỏ chứa 100% các ngày làm việc (Trừ Chủ Nhật)
+                    const dayDescMap = { 'T2': 'Triển khai tuyến Cai Lậy / Tân Phước', 'T3': 'Trọng điểm Cái Bè (Thúc đẩy doanh số)', 'T4': 'Triển khai Châu Thành / Mỹ Tho', 'T5': 'Triển khai tuyến Cai Lậy / Tân Phước', 'T6': 'Trọng điểm Cái Bè (Thúc đẩy doanh số)', 'T7': 'Bảo trì tuyến Mỹ Tho / Châu Thành' };
+                    const dayDistrictMap = { 'T2': ['cai lay', 'tan phuoc'], 'T3': ['cai be', 'cai lay'], 'T4': ['chau thanh', 'my tho'], 'T5': ['cai lay', 'tan phuoc'], 'T6': ['cai be', 'cai lay'], 'T7': ['my tho', 'chau thanh'] };
+
+                    // 1. Tạo giỏ chứa 100% các ngày làm việc thực tế trong tháng
                     Object.keys(cal).forEach(wStr => {
                         const weekNum = parseInt(wStr);
                         newSchedule[weekNum] = {};
                         Object.keys(cal[wStr]).forEach(dayKey => {
                             newSchedule[weekNum][dayKey] = {
                                 day: `Thứ ${dayKey.replace('T', '')}`,
-                                desc: 'Triển khai tuyến',
-                                limit: 12,
+                                desc: dayDescMap[dayKey] || 'Triển khai tuyến',
+                                limit: 12, // Giới hạn max
                                 items: [],
                                 date: cal[wStr][dayKey].date
                             };
@@ -438,58 +411,70 @@
                     // 2. Gom toàn bộ "Phiếu đi tuyến" (Trọng điểm = 3 phiếu, Duy trì = 2, Tương tác = 1)
                     let visitsToAssign = [];
                     customers.forEach(c => {
-                        let visits = 1; // Mặc định TƯƠNG TÁC
+                        let visits = 1; 
                         if (c.type === 'TRONG_DIEM') visits = 3;
                         else if (c.type === 'DUY_TRI') visits = 2;
                         
                         for (let i = 0; i < visits; i++) {
-                            // _visitIndex giúp nhận diện đây là lượt đi thứ mấy của cửa hàng này
                             visitsToAssign.push({ ...c, sales: '', _visitIndex: i }); 
                         }
                     });
 
-                    // 3. Sắp xếp: Ưu tiên rải hết Lượt 1 cho toàn bộ khách, rồi mới tới Lượt 2, Lượt 3 (Bảo đảm giãn cách)
+                    // 3. Sắp xếp: Ưu tiên rải hết Lượt 1 trước, đảm bảo sự giãn cách cho Lượt 2, Lượt 3
                     visitsToAssign.sort((a, b) => a._visitIndex - b._visitIndex);
 
-                    // Hàm kiểm tra xem Tuần đó đã ghé khách này chưa
+                    // Hàm phụ: Kiểm tra xem Tuần đó đã ghé khách này chưa
                     const countInWeek = (dayList, weekNum, custId) => {
                         return dayList.filter(d => d.week === weekNum).flatMap(d => d.items).filter(i => i.id === custId).length;
                     };
 
-                    // 4. THUẬT TOÁN SAN PHẲNG (LOAD BALANCING)
+                    // 4. THUẬT TOÁN SAN PHẲNG + ĐỊA LÝ
                     visitsToAssign.forEach(visit => {
-                        // Tiêu chí 1: Ngày đó < 12 khách VÀ Tuần đó chưa ghé khách này (Bảo đảm không đi trùng)
-                        let candidates = allAvailableDays.filter(d => d.items.length < 12 && countInWeek(allAvailableDays, d.week, visit.id) === 0);
+                        const h = normalizeStr(visit.huyen) || 'khac';
+                        
+                        // Lọc ra danh sách các ngày ĐÚNG TUYẾN HUYỆN
+                        const geoMatchedDays = allAvailableDays.filter(d => {
+                            const targetDistricts = dayDistrictMap[d.dayKey] || ['all'];
+                            return targetDistricts.includes('all') || targetDistricts.some(dist => h.includes(dist));
+                        });
 
-                        // Tiêu chí 2 (Nới lỏng nếu kẹt): Nếu tuần nào cũng ghé rồi, cho phép đi trùng tuần nhưng PHẢI KHÁC NGÀY
+                        // Ưu tiên 1: ĐÚNG HUYỆN + CHƯA ĐI TUẦN NÀY + CHƯA FULL
+                        let candidates = geoMatchedDays.filter(d => d.items.length < 12 && countInWeek(allAvailableDays, d.week, visit.id) === 0);
+
+                        // Ưu tiên 2: ĐÚNG HUYỆN + KHÁC NGÀY
                         if (candidates.length === 0) {
-                            candidates = allAvailableDays.filter(d => d.items.length < 12 && !d.items.some(i => i.id === visit.id));
+                            candidates = geoMatchedDays.filter(d => d.items.length < 12 && !d.items.some(i => i.id === visit.id));
                         }
 
-                        // Vét cạn (Bảo vệ tuyệt đối không sót khách): Mở khóa giới hạn 12 nếu toàn bộ tháng đều đã full
+                        // Ưu tiên 3: PHÁ TUYẾN + CHƯA ĐI TUẦN NÀY
+                        if (candidates.length === 0) {
+                            candidates = allAvailableDays.filter(d => d.items.length < 12 && countInWeek(allAvailableDays, d.week, visit.id) === 0);
+                        }
+
+                        // Ưu tiên 4: VÉT CẠN KHÁC NGÀY
                         if (candidates.length === 0) {
                             candidates = allAvailableDays.filter(d => !d.items.some(i => i.id === visit.id));
                         }
 
-                        // Bí quyết Cân Bằng: Luôn chọn ngày đang có ÍT KHÁCH NHẤT trong tháng để bỏ khách vào
+                        // Ưu tiên ngày đang có ÍT khách nhất (San phẳng 8-12)
                         candidates.sort((a, b) => a.items.length - b.items.length);
                         
                         if(candidates.length > 0) {
-                            const bestDay = candidates[0];
-                            bestDay.items.push(visit);
+                            candidates[0].items.push(visit);
                         }
                     });
 
-                    // 5. Cập nhật lại lịch hoàn chỉnh
+                    // 5. Cập nhật lại lịch hoàn chỉnh ra UI
                     allAvailableDays.forEach(d => {
                         newSchedule[d.week][d.dayKey].items = d.items;
                     });
 
                     setFullMonthSchedule(newSchedule);
                     setActiveTab('schedule'); setActiveWeekTab(1); setSearchTerm('');
-                    setStatus({ type: 'success', text: `Đã tự động san phẳng ${visitsToAssign.length} lượt viếng thăm cho ${allAvailableDays.length} ngày công!` });
+                    setStatus({ type: 'success', text: `Đã tự động ghép tuyến & dàn trải đều ${visitsToAssign.length} lượt đi!` });
                 }, 500);
             };
+
             const getSalesData = () => {
                 let currentMonthSales = 0; let currentQuarterManualSales = 0; let yearManualSales = 0; 
                 let trongDiemSales = 0, duyTriSales = 0, tuongTacSales = 0;
@@ -988,7 +973,7 @@
                                     </div>
                                 </div>
 
-                                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                                <div className bg-white rounded-xl shadow-sm border border-slate-200 p-5">
                                     <h3 className="font-bold text-slate-800 mb-4 text-lg">Tổng Hợp Doanh Số Tháng {selectedMonth}</h3>
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                                         <div className="bg-slate-50 border border-slate-100 p-4 rounded-lg">
@@ -1064,7 +1049,7 @@
                                 </div>
 
                                 <div className="flex justify-center mt-6">
-                                    <button onClick={executeRoutingForMonth} className="bg-blue-600 hover:bg-blue-700 text-white px-10 py-4 rounded-xl font-black text-lg flex items-center gap-3 shadow-md active:scale-95 transition-all"><i className="fa-solid fa-calendar-check text-[20px]"></i> TẠO LỊCH 1 THÁNG CHUẨN LỊCH VẠN NIÊN</button>
+                                    <button onClick={executeRoutingForMonth} className="bg-blue-600 hover:bg-blue-700 text-white px-10 py-4 rounded-xl font-black text-lg flex items-center gap-3 shadow-md active:scale-95 transition-all"><i className="fa-solid fa-calendar-check text-[20px]"></i> TẠO LỊCH ĐI TUYẾN CHUẨN</button>
                                 </div>
                             </div>
                         )}
@@ -1090,7 +1075,7 @@
                                             <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="bg-transparent outline-none cursor-pointer text-blue-700">
                                                 {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => <option key={m} value={m}>{m}</option>)}
                                             </select>
-                                            <span className="mx-1">/</span>
+                                            <span className="mx-1\">/</span>
                                             <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="bg-transparent outline-none cursor-pointer text-blue-700">
                                                 {[2025, 2026, 2027, 2028].map(y => <option key={y} value={y}>{y}</option>)}
                                             </select>
