@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -46,7 +47,6 @@
             return strVal ? Number(strVal) : 0;
         };
 
-        // ĐỘNG CƠ LỊCH VẠN NIÊN LINH HOẠT - Quét thực tế theo từng tháng
         const buildMonthCalendar = (year, month) => {
             const weeks = {};
             let weekNum = 1;
@@ -64,7 +64,7 @@
                 }
 
                 if (dayOfWeek === 0 && d !== daysInMonth) {
-                    if (weeks[weekNum]) weekNum++; // Chuyển tuần nếu tuần trước có ngày làm việc
+                    if (weeks[weekNum]) weekNum++; 
                 }
             }
             return weeks;
@@ -86,7 +86,11 @@
 
             const [showAddForm, setShowAddForm] = useState(false);
             const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', xa: '', huyen: '', type: 'DUY_TRI' });
+            
+            // State mới phục vụ Edit toàn diện
             const [expandedCustomer, setExpandedCustomer] = useState(null);
+            const [editingData, setEditingData] = useState(null);
+
             const [customerToDelete, setCustomerToDelete] = useState(null);
 
             const [activeTab, setActiveTab] = useState('upload'); 
@@ -323,6 +327,21 @@
                 setNewCustomer({ name: '', phone: '', xa: '', huyen: '', type: 'DUY_TRI' }); setShowAddForm(false); setFullMonthSchedule(null); setStatus({ type: 'success', text: 'Thêm khách hàng thành công.' });
             };
 
+            // Hàm mở Edit form
+            const openEditForm = (c) => {
+                setExpandedCustomer(c.id);
+                setEditingData(JSON.parse(JSON.stringify(c))); // Copy dữ liệu để sửa nháp
+            };
+
+            // Hàm lưu Edit form
+            const saveEditForm = () => {
+                if (!editingData) return;
+                setCustomers(prev => prev.map(c => c.id === editingData.id ? editingData : c));
+                setExpandedCustomer(null);
+                setFullMonthSchedule(null); // Reset lịch vì có thể đổi Khu vực
+                setStatus({ type: 'success', text: 'Đã cập nhật thông tin thành công!' });
+            };
+
             const confirmDeleteCustomer = () => { 
                 if(customerToDelete) { setCustomers(prev => prev.filter(c => c.id !== customerToDelete.id)); setFullMonthSchedule(null); setCustomerToDelete(null); }
             };
@@ -340,8 +359,6 @@
                 setFullMonthSchedule(null); 
             };
             
-            const handleMonthlySalesChange = (id, month, val) => { setCustomers(prev => prev.map(c => c.id === id ? { ...c, monthlySales: {...c.monthlySales, [month]: val} } : c)); };
-
             const handleSetHomeLocation = () => {
                 if (!navigator.geolocation) return setStatus({ type: 'error', text: 'Trình duyệt không hỗ trợ định vị.' });
                 setStatus({ type: 'loading', text: 'Đang lấy tọa độ...' });
@@ -392,7 +409,6 @@
                     const dayDescMap = { 'T2': 'Triển khai tuyến Cai Lậy / Tân Phước', 'T3': 'Trọng điểm Cái Bè (Thúc đẩy doanh số)', 'T4': 'Triển khai Châu Thành / Mỹ Tho', 'T5': 'Triển khai tuyến Cai Lậy / Tân Phước', 'T6': 'Trọng điểm Cái Bè (Thúc đẩy doanh số)', 'T7': 'Bảo trì tuyến Mỹ Tho / Châu Thành' };
                     const dayDistrictMap = { 'T2': ['cai lay', 'tan phuoc'], 'T3': ['cai be', 'cai lay'], 'T4': ['chau thanh', 'my tho'], 'T5': ['cai lay', 'tan phuoc'], 'T6': ['cai be', 'cai lay'], 'T7': ['my tho', 'chau thanh'] };
 
-                    // 1. Tạo giỏ chứa 100% các ngày làm việc thực tế trong tháng
                     Object.keys(cal).forEach(wStr => {
                         const weekNum = parseInt(wStr);
                         newSchedule[weekNum] = {};
@@ -408,7 +424,6 @@
                         });
                     });
 
-                    // 2. Gom phiếu đi tuyến dựa vào LOẠI KHÁCH
                     let visitsToAssign = [];
                     customers.forEach(c => {
                         let visits = 1; 
@@ -420,14 +435,17 @@
                         }
                     });
 
-                    // 3. Xếp Lượt 1 trước, đảm bảo không bị dính cục
-                    visitsToAssign.sort((a, b) => a._visitIndex - b._visitIndex);
+                    // 🛠 FIX: Xếp Lượt 1 trước, NHƯNG ưu tiên Trọng Điểm lên vị trí số 1 của hàng đợi!
+                    visitsToAssign.sort((a, b) => {
+                        if (a._visitIndex !== b._visitIndex) return a._visitIndex - b._visitIndex;
+                        const weight = { 'TRONG_DIEM': 3, 'DUY_TRI': 2, 'TUONG_TAC': 1 };
+                        return weight[b.type] - weight[a.type]; // Trọng điểm luôn lên trước
+                    });
 
                     const countInWeek = (dayList, weekNum, custId) => {
                         return dayList.filter(d => d.week === weekNum).flatMap(d => d.items).filter(i => i.id === custId).length;
                     };
 
-                    // 4. CHIA ĐỀU KHÁCH VÀO CÁC NGÀY (SAN PHẲNG + ĐỊA LÝ)
                     visitsToAssign.forEach(visit => {
                         const h = normalizeStr(visit.huyen) || 'khac';
                         
@@ -461,41 +479,29 @@
                         }
                     });
 
-                    // 4.5. TỰ ĐỘNG BÙ ĐẮP (AUTO-PADDING) KHÉO LÉO
-                    // Tính số lần 1 khách hàng đã có mặt trong nguyên 1 tháng
                     const countInMonth = (custId) => allAvailableDays.flatMap(d => d.items).filter(i => i.id === custId).length;
 
                     allAvailableDays.forEach(day => {
-                        // Nếu ngày bị tụt xuống dưới 8 điểm
                         while (day.items.length < 8) {
-                            
-                            // Chỉ lấy những khách:
-                            // 1. Chưa đi trong ngày hôm nay
-                            // 2. TỔNG SỐ LẦN ĐI TRONG THÁNG CHƯA QUÁ 4 LẦN (Chống lạm dụng ép 1 người đi quá nhiều)
                             let padCandidates = customers.filter(c => 
                                 !day.items.some(i => i.id === c.id) && countInMonth(c.id) < 4 
                             );
-                            
-                            if (padCandidates.length === 0) break; // Thoát nếu khách nào cũng đã đi quá 4 lần (Hiếm khi xảy ra)
+                            if (padCandidates.length === 0) break; 
 
                             const targetDistricts = dayDistrictMap[day.dayKey] || ['all'];
                             
-                            // Lọc thêm: Ưu tiên chọn khách ĐÚNG TUYẾN HUYỆN để không bị chạy trái đường
                             let bestMatches = padCandidates.filter(c => {
                                 const h = normalizeStr(c.huyen) || 'khac';
                                 return targetDistricts.includes('all') || targetDistricts.some(dist => h.includes(dist));
                             });
                             
-                            // Rớt đài: Nếu không có ai đúng huyện, đành lấy râu ria
                             if (bestMatches.length === 0) bestMatches = padCandidates;
 
-                            // Lọc thêm: Ưu tiên khách CHƯA ĐI TRONG TUẦN NÀY
                             let notInWeekMatches = bestMatches.filter(c => countInWeek(allAvailableDays, day.week, c.id) === 0);
                             if (notInWeekMatches.length > 0) {
                                 bestMatches = notInWeekMatches;
                             }
 
-                            // SẮP XẾP CUỐI CÙNG: Đứa nào trong tháng đi ÍT NHẤT thì bốc đứa đó đi bù
                             bestMatches.sort((a, b) => countInMonth(a.id) - countInMonth(b.id));
 
                             const picked = bestMatches[0];
@@ -503,14 +509,13 @@
                         }
                     });
 
-                    // 5. Cập nhật lịch vào UI
                     allAvailableDays.forEach(d => {
                         newSchedule[d.week][d.dayKey].items = d.items;
                     });
 
                     setFullMonthSchedule(newSchedule);
                     setActiveTab('schedule'); setActiveWeekTab(1); setSearchTerm('');
-                    setStatus({ type: 'success', text: `Chia lịch thành công! Đã chạy Auto-padding bù đắp thông minh.` });
+                    setStatus({ type: 'success', text: `Chia lịch thành công! Ưu tiên KH Trọng điểm & Tuyến khu vực.` });
                 }, 500);
             };
 
@@ -587,11 +592,10 @@
                     const monthColMap = { 1:8, 2:9, 3:10, 4:12, 5:13, 6:14, 7:16, 8:17, 9:18, 10:20, 11:21, 12:22 };
                     const salesMap = {}; customers.forEach(c => salesMap[c.id] = { c, days: Array(31).fill(0) });
 
-                    // BẮT CHÍNH XÁC NGÀY VÀO ĐÚNG CỘT NGÀY EXCEL
                     Object.keys(fullMonthSchedule).forEach(week => { 
                         Object.keys(fullMonthSchedule[week]).forEach(dayKey => { 
                             const dayData = fullMonthSchedule[week][dayKey];
-                            const exactDate = dayData.date; // 1 -> 31
+                            const exactDate = dayData.date; 
                             if (exactDate) { 
                                 dayData.items.forEach(item => { 
                                     if (item.sales && !isNaN(item.sales)) salesMap[item.id].days[exactDate - 1] += Number(item.sales); 
@@ -619,13 +623,18 @@
 
                         let mSales = {};
 
+                        // Gán giá trị tháng
                         for (let m = 1; m <= 12; m++) {
                             const targetCol = monthColMap[m];
                             let val = Number(c.monthlySales?.[m]) || 0;
                             
                             if (m === selectedMonth) { 
-                                val = daysSum > 0 ? daysSum : val;
-                                r.getCell(targetCol).value = val > 0 ? { formula: `Y${rowIndex}`, result: val } : val; 
+                                // FIX CÔNG THỨC: Nếu có số daily, gài công thức sum(Z:BD). Nếu ko có, thả lỏng để người dùng tự gõ vào File!
+                                if (daysSum > 0) {
+                                    r.getCell(targetCol).value = { formula: `SUM(Z${rowIndex}:BD${rowIndex})`, result: daysSum };
+                                } else {
+                                    r.getCell(targetCol).value = val; 
+                                }
                                 r.getCell(targetCol).font = { bold: true }; 
                             } else { 
                                 if (val > 0) r.getCell(targetCol).value = val; 
@@ -638,12 +647,13 @@
                         let q1 = mSales[1]+mSales[2]+mSales[3]; let q2 = mSales[4]+mSales[5]+mSales[6]; let q3 = mSales[7]+mSales[8]+mSales[9]; let q4 = mSales[10]+mSales[11]+mSales[12];
                         let totalYear = q1+q2+q3+q4;
 
-                        r.getCell(11).value = { formula: `H${rowIndex}+I${rowIndex}+J${rowIndex}`, result: q1 }; r.getCell(11).font = { bold: true }; r.getCell(11).numFmt = '#,##0';
-                        r.getCell(15).value = { formula: `L${rowIndex}+M${rowIndex}+N${rowIndex}`, result: q2 }; r.getCell(15).font = { bold: true }; r.getCell(15).numFmt = '#,##0';
-                        r.getCell(19).value = { formula: `P${rowIndex}+Q${rowIndex}+R${rowIndex}`, result: q3 }; r.getCell(19).font = { bold: true }; r.getCell(19).numFmt = '#,##0';
-                        r.getCell(23).value = { formula: `T${rowIndex}+U${rowIndex}+V${rowIndex}`, result: q4 }; r.getCell(23).font = { bold: true }; r.getCell(23).numFmt = '#,##0';
+                        // FIX CÔNG THỨC QUÝ/NĂM: Dùng SUM() thay vì `+` để không bị lỗi #VALUE nếu có ô trống hoặc chữ
+                        r.getCell(11).value = { formula: `SUM(H${rowIndex}:J${rowIndex})`, result: q1 }; r.getCell(11).font = { bold: true }; r.getCell(11).numFmt = '#,##0';
+                        r.getCell(15).value = { formula: `SUM(L${rowIndex}:N${rowIndex})`, result: q2 }; r.getCell(15).font = { bold: true }; r.getCell(15).numFmt = '#,##0';
+                        r.getCell(19).value = { formula: `SUM(P${rowIndex}:R${rowIndex})`, result: q3 }; r.getCell(19).font = { bold: true }; r.getCell(19).numFmt = '#,##0';
+                        r.getCell(23).value = { formula: `SUM(T${rowIndex}:V${rowIndex})`, result: q4 }; r.getCell(23).font = { bold: true }; r.getCell(23).numFmt = '#,##0';
                         
-                        r.getCell(24).value = { formula: `K${rowIndex}+O${rowIndex}+S${rowIndex}+W${rowIndex}`, result: totalYear }; r.getCell(24).font = { bold: true, color: { argb: 'FFFF0000' } }; r.getCell(24).numFmt = '#,##0';
+                        r.getCell(24).value = { formula: `SUM(K${rowIndex},O${rowIndex},S${rowIndex},W${rowIndex})`, result: totalYear }; r.getCell(24).font = { bold: true, color: { argb: 'FFFF0000' } }; r.getCell(24).numFmt = '#,##0';
                         r.getCell(25).value = { formula: `SUM(Z${rowIndex}:BD${rowIndex})`, result: daysSum }; r.getCell(25).font = { bold: true, color: { argb: 'FF0047AB' } }; r.getCell(25).numFmt = '#,##0';
 
                         totalColSums[11] += q1; totalColSums[15] += q2; totalColSums[19] += q3; totalColSums[23] += q4; totalColSums[24] += totalYear; totalColSums[25] += daysSum;
@@ -795,8 +805,6 @@
                 normalizeStr(c.huyen).includes(searchStr)
             );
             
-            const currentQuarterMonths = (() => { const q = Math.ceil(selectedMonth / 3); return [(q-1)*3 + 1, (q-1)*3 + 2, (q-1)*3 + 3]; })();
-
             const estimatedVisits = (trongDiemCount * 3) + (duyTriCount * 2) + (tuongTacCount * 1);
             const minRequiredVisits = 200; 
             const maxAllowedVisits = 288; 
@@ -919,7 +927,7 @@
                                                 <div className="flex justify-between items-start mb-2">
                                                     <div className="truncate pr-2 flex-1">
                                                         <div className="font-bold text-[15px] truncate text-slate-800">{c.name}</div>
-                                                        <div className="text-[11px] text-slate-500 mt-0.5"><i className="fa-solid fa-location-dot"></i> {[c.xa, c.huyen].filter(Boolean).join(', ')}</div>
+                                                        <div className="text-[11px] text-slate-500 mt-0.5"><i className="fa-solid fa-location-dot"></i> {[c.xa, c.huyen].filter(Boolean).join(', ')} - SĐT: {c.phone || '--'}</div>
                                                         {importedDaysSum > 0 && (
                                                             <div className="text-[10px] font-bold text-emerald-600 mt-1"><i className="fa-solid fa-check-circle"></i> Đã nạp DS Ngày: {formatVND(importedDaysSum)}đ</div>
                                                         )}
@@ -930,25 +938,50 @@
                                                 </div>
                                                 
                                                 <div className="flex items-center justify-between border-t border-slate-100 pt-3 mt-1">
-                                                    <button onClick={() => setExpandedCustomer(expandedCustomer === c.id ? null : c.id)} className="text-[11px] bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold px-2.5 py-1.5 rounded transition border border-slate-200 flex items-center gap-1.5">
-                                                        <i className="fa-solid fa-pencil"></i> Nhập DS Các Tháng
+                                                    <button onClick={() => expandedCustomer === c.id ? setExpandedCustomer(null) : openEditForm(c)} className="text-[11px] bg-slate-50 hover:bg-slate-100 text-slate-600 font-bold px-2.5 py-1.5 rounded transition border border-slate-200 flex items-center gap-1.5">
+                                                        <i className="fa-solid fa-pencil"></i> Sửa Thông Tin & DS
                                                     </button>
                                                     <button onClick={() => setCustomerToDelete(c)} className="w-7 h-7 flex items-center justify-center hover:bg-red-50 text-slate-400 hover:text-red-500 rounded transition-colors" title="Xóa KH">
                                                         <i className="fa-solid fa-trash-can"></i>
                                                     </button>
                                                 </div>
 
-                                                {expandedCustomer === c.id && (
-                                                    <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-2.5 animate-in zoom-in-95">
-                                                        <div className="text-[10px] font-bold text-slate-500 mb-2 uppercase text-center tracking-wider">Doanh Số Quý {Math.ceil(selectedMonth/3)}</div>
-                                                        <div className="grid grid-cols-3 gap-1.5">
-                                                            {currentQuarterMonths.map(m => (
-                                                                <input key={m} type="number" placeholder={`T${m}`} value={c.monthlySales?.[m] || ''} 
-                                                                    onChange={e => handleMonthlySalesChange(c.id, m, e.target.value)}
-                                                                    className={`w-full border p-1 text-[11px] font-bold rounded outline-none text-center ${m === selectedMonth && importedDaysSum > 0 ? 'bg-emerald-100 text-emerald-700 cursor-not-allowed' : m === selectedMonth ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white focus:border-blue-500 text-blue-700'}`} 
-                                                                    disabled={m === selectedMonth} title={m === selectedMonth ? "Tháng hiện hành lấy từ Lịch Tuyến/DS Ngày" : `Nhập DS Tháng ${m}`} 
-                                                                />
-                                                            ))}
+                                                {/* FORM CHỈNH SỬA TOÀN DIỆN THAY THẾ CHO CÁI CŨ */}
+                                                {expandedCustomer === c.id && editingData && (
+                                                    <div className="mt-3 bg-white border border-slate-200 rounded-lg p-3 animate-in zoom-in-95 shadow-sm">
+                                                        <div className="text-[10px] font-bold text-blue-600 mb-2 uppercase border-b border-slate-100 pb-1.5"><i className="fa-solid fa-address-card"></i> Thông tin cơ bản</div>
+                                                        <div className="grid grid-cols-2 gap-2 mb-3">
+                                                            <input type="text" value={editingData.name} onChange={e => setEditingData({...editingData, name: e.target.value})} className="border border-slate-300 p-1.5 text-xs rounded outline-none focus:border-blue-500 bg-slate-50" placeholder="Tên KH" />
+                                                            <input type="text" value={editingData.phone} onChange={e => setEditingData({...editingData, phone: e.target.value})} className="border border-slate-300 p-1.5 text-xs rounded outline-none focus:border-blue-500 bg-slate-50" placeholder="SĐT" />
+                                                            <input type="text" value={editingData.xa} onChange={e => setEditingData({...editingData, xa: e.target.value})} className="border border-slate-300 p-1.5 text-xs rounded outline-none focus:border-blue-500 bg-slate-50" placeholder="Xã/Phường" />
+                                                            <input type="text" value={editingData.huyen} onChange={e => setEditingData({...editingData, huyen: e.target.value})} className="border border-slate-300 p-1.5 text-xs rounded outline-none focus:border-blue-500 bg-slate-50" placeholder="Huyện/Thị trấn" />
+                                                        </div>
+
+                                                        <div className="text-[10px] font-bold text-blue-600 mb-2 uppercase border-b border-slate-100 pb-1.5 flex justify-between">
+                                                            <span><i className="fa-solid fa-chart-bar"></i> Doanh số 12 Tháng</span>
+                                                        </div>
+                                                        <div className="grid grid-cols-4 gap-1.5 mb-3">
+                                                            {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => {
+                                                                const isCurrentMonth = (m === selectedMonth);
+                                                                return (
+                                                                    <div key={m} className="flex flex-col relative">
+                                                                        <span className={`text-[9px] text-center font-bold mb-0.5 ${isCurrentMonth ? 'text-blue-600' : 'text-slate-500'}`}>T.{m} {isCurrentMonth && '(Nay)'}</span>
+                                                                        <input type="number" 
+                                                                            value={editingData.monthlySales?.[m] || ''} 
+                                                                            onChange={e => setEditingData({...editingData, monthlySales: {...editingData.monthlySales, [m]: extractNumber(e.target.value)}})}
+                                                                            className={`border p-1.5 text-[11px] font-bold rounded outline-none text-center transition-colors
+                                                                                ${isCurrentMonth ? 'bg-blue-50 border-blue-400 text-blue-800 focus:bg-white' : 'bg-white border-slate-300 text-slate-700 focus:border-blue-500'}
+                                                                            `} 
+                                                                            placeholder="0" 
+                                                                        />
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+
+                                                        <div className="flex gap-2 justify-end border-t border-slate-100 pt-2.5">
+                                                            <button onClick={() => setExpandedCustomer(null)} className="px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded transition border border-slate-200">Hủy</button>
+                                                            <button onClick={saveEditForm} className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded transition shadow-sm"><i className="fa-solid fa-floppy-disk"></i> Lưu Thay Đổi</button>
                                                         </div>
                                                     </div>
                                                 )}
@@ -1241,3 +1274,5 @@
     </script>
 </body>
 </html>
+
+
